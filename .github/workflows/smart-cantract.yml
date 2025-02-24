@@ -75,7 +75,7 @@ jobs:
         run: |
           npx hardhat run scripts/interact.js --network localhost
 
-- name: Generate deployment report
+      - name: Generate deployment report
         run: |
           # Créer le répertoire coverage s'il n'existe pas
           mkdir -p coverage
