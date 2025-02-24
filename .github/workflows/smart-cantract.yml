@@ -75,14 +75,36 @@ jobs:
         run: |
           npx hardhat run scripts/interact.js --network localhost
 
-      - name: Generate deployment report
+- name: Generate deployment report
         run: |
+          # Créer le répertoire coverage s'il n'existe pas
+          mkdir -p coverage
+
+          # Créer les fichiers s'ils n'existent pas
+          if [ ! -f deployed-addresses.json ]; then
+            echo '{"contracts":{}}' > deployed-addresses.json
+          fi
+
+          if [ ! -f gas-report.txt ]; then
+            echo "Gas Report - Generated on $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > gas-report.txt
+            echo "No gas data available yet" >> gas-report.txt
+          fi
+
+          if [ ! -f coverage/index.html ]; then
+            echo "<html><body><h1>Coverage Report</h1><p>No coverage data available yet</p></body></html>" > coverage/index.html
+          fi
+
+          # Générer le rapport
           echo "# Deployment Report" > deployment-report.md
-          echo "## Contract Addresses" >> deployment-report.md
+          echo "## Generated on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> deployment-report.md
+          
+          echo -e "\n## Contract Addresses" >> deployment-report.md
           cat deployed-addresses.json >> deployment-report.md
-          echo "## Gas Report" >> deployment-report.md
+          
+          echo -e "\n## Gas Report" >> deployment-report.md
           cat gas-report.txt >> deployment-report.md
-          echo "## Coverage Report" >> deployment-report.md
+          
+          echo -e "\n## Coverage Report" >> deployment-report.md
           cat coverage/index.html >> deployment-report.md
 
       - name: Upload deployment report
