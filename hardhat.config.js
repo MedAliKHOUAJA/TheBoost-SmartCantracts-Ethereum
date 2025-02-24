@@ -11,8 +11,17 @@ module.exports = {
       ]
   },
   slither: {
-    runs: ["all"], // Exécute toutes les analyses par défaut
-    exclude: ["test", "scripts"], // Exclut les dossiers test et scripts
-    masquerade: false, // Désactive le masquage des erreurs (optionnel)
-},
+      runs: ["all"], // Exécute toutes les analyses par défaut
+      exclude: ["test", "scripts"], // Exclut les dossiers test et scripts
+      masquerade: false, // Désactive le masquage des erreurs (optionnel)
+  },
+  networks: {
+     hardhat: {
+        chainId: 31337
+     },
+    localhost: {
+      url: "http://127.0.0.1:8545",
+      chainId: 31337
+    }
+  }
 };
