@@ -61,7 +61,7 @@ jobs:
           HARDHAT_NETWORK: localhost
 
       - name: Archive deployment artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deployed-contracts
           path: |
@@ -86,7 +86,7 @@ jobs:
           cat coverage/index.html >> deployment-report.md
 
       - name: Upload deployment report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deployment-report
           path: deployment-report.md
