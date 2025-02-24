@@ -20,7 +20,98 @@ jobs:
           cache: 'npm'
 
       - name: Install Python
+        uses: actions/setup-python@vname: Smart Contracts CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+
+      - name: Install Python
         uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install Slither
+        run: |
+          python -m pip install --upgrade pip
+          pip install slither-analyzer
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --save-dev hardhat @nomicfoundation/hardhat-toolbox @nomicfoundation/hardhat-ignition hardhat-gas-reporter solidity-coverage
+
+      - name: Run Hardhat compile
+        run: npx hardhat compile
+
+      - name: Run unit tests
+        run: npx hardhat test
+        env:
+          REPORT_GAS: true
+
+      - name: Run coverage
+        run: npx hardhat coverage
+
+      - name: Run Slither
+        run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version
+
+      - name: Start local node
+        run: npx hardhat node &
+        
+      - name: Wait for node
+        run: sleep 5
+
+      - name: Deploy contracts
+        run: |
+          npx hardhat run scripts/deploy.js --network localhost
+        env:
+          HARDHAT_NETWORK: localhost
+
+      - name: Archive deployment artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployed-contracts
+          path: |
+            artifacts/
+            deployed-addresses.json
+            coverage/
+            coverage.json
+            gas-report.txt
+
+      - name: Run post-deployment tests
+        run: |
+          npx hardhat run scripts/interact.js --network localhost
+
+      - name: Generate deployment report
+        run: |
+          echo "# Deployment Report" > deployment-report.md
+          echo "## Contract Addresses" >> deployment-report.md
+          cat deployed-addresses.json >> deployment-report.md
+          echo "## Gas Report" >> deployment-report.md
+          cat gas-report.txt >> deployment-report.md
+          echo "## Coverage Report" >> deployment-report.md
+          cat coverage/index.html >> deployment-report.md
+
+      - name: Upload deployment report
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-report
+          path: deployment-report.md2
         with:
           python-version: '3.x'
 
