@@ -27,7 +27,7 @@ describe("Land System Tests", function () {
             const landRegistryAddress = await landRegistry.getAddress();
 
             // 3. Déploiement de LandToken
-            console.log("Déploiement de LandToken...");
+            console.log("Déploiement ...");
             const LandToken = await ethers.getContractFactory("LandToken");
             landToken = await LandToken.deploy(landRegistryAddress);
             await landToken.waitForDeployment();
