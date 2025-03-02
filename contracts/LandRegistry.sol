@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "./Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 
 contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
@@ -69,12 +69,9 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         bool isValidated
     );
 
-    event TokenizerSet(
-        address indexed previousTokenizer,
-        address indexed newTokenizer
-    );
     event LandTokenized(uint256 indexed landId);
 
+    error UnauthorizedTokenizer();
     error InvalidTokenizer();
     error InvalidValidator();
     error UnauthorizedValidator();
@@ -88,7 +85,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
     constructor(address _tokenizer) {
         if (_tokenizer == address(0)) revert InvalidTokenizer();
-        tokenizer = _tokenizer;
+        tokenizer = _tokenizer; // Seule initialisation possible pour une variable immutable
     }
 
     modifier onlyTokenizer() {
@@ -198,16 +195,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         return landValidations[_landId];
     }
 
-    /**
-     * @dev Configure l'adresse du contrat autorisé à tokenizer les terrains
-     * @param _tokenizer L'adresse du contrat tokenizer
-     */
-    function setTokenizer(address _tokenizer) external onlyOwner {
-        require(_tokenizer != address(0), "Adresse tokenizer invalide");
-        address oldTokenizer = tokenizer;
-        tokenizer = _tokenizer;
-        emit TokenizerSet(oldTokenizer, _tokenizer);
-    }
+
 
     /**
      * @dev Tokenize un terrain. Seul le contrat tokenizer peut appeler cette fonction
@@ -224,6 +212,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         lands[_landId].isTokenized = true;
         emit LandTokenized(_landId);
     }
+
 
     function registerLand(
         string calldata _location,
