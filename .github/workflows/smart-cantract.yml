@@ -45,8 +45,8 @@ jobs:
       - name: Run coverage
         run: npx hardhat coverage
 
-       - name: Run Slither
-         run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version
+      - name: Run Slither
+        run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version
 
       - name: Start local node
         run: npx hardhat node &
