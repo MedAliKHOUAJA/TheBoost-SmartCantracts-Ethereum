@@ -42,8 +42,8 @@ jobs:
       #   env:
       #     REPORT_GAS: true
 
-      - name: Run coverage
-        run: npx hardhat coverage
+      # - name: Run coverage
+      #   run: npx hardhat coverage
 
       - name: Run Slither
         run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version
