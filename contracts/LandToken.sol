@@ -95,7 +95,7 @@ contract LandToken is
 
     function withdrawEther() external nonReentrant onlyOwner {
         uint256 balance = address(this).balance;
-        if (balance == 0) revert NoEtherToWithdraw();
+        if (balance <= 0) revert NoEtherToWithdraw();
 
         (bool success, ) = payable(owner()).call{value: balance}("");
         if (!success) revert TransferFailed();
@@ -116,7 +116,7 @@ contract LandToken is
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
             uint256 pricePerToken,
-
+            string memory cid
         ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();

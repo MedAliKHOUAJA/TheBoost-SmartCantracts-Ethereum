@@ -87,20 +87,13 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
      * @param _tokenId L'ID du token à lister.
      * @param _price Le prix demandé pour le token.
      */
-    function listToken(uint256 _tokenId, uint256 _price) external {
-        // Vérifie que le msg.sender est le propriétaire du token.
-        require(landToken.ownerOf(_tokenId) == msg.sender, "Non proprietaire");
+    function listToken(uint256 _tokenId, uint256 _price) external nonReentrant {
+        // Vérifications
+        if (landToken.ownerOf(_tokenId) != msg.sender) revert NotTokenOwner();
+        if (_price == 0) revert InvalidPrice();
+        if (listings[_tokenId].isActive) revert AlreadyListed();
 
-        // Vérifie que le prix est valide (> 0).
-        require(_price > 0, "Prix invalide");
-
-        // Vérifie que le token n'est pas déjà en vente.
-        require(!listings[_tokenId].isActive, "Deja en vente");
-
-        // Transfère le token du propriétaire au contrat.
-        landToken.transferFrom(msg.sender, address(this), _tokenId);
-
-        // Crée une nouvelle liste pour le token.
+        // Mettre à jour l'état avant l'appel externe
         listings[_tokenId] = Listing({
             tokenId: _tokenId,
             price: _price,
@@ -108,7 +101,9 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
             isActive: true
         });
 
-        // Émet l'événement TokenListed.
+        // Appel externe après la mise à jour de l'état
+        landToken.transferFrom(msg.sender, address(this), _tokenId);
+
         emit TokenListed(_tokenId, _price, msg.sender);
     }
 
@@ -117,37 +112,30 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
      * @param _tokenId L'ID du token à acheter.
      */
     function buyToken(uint256 _tokenId) external payable nonReentrant {
-        // Récupère les informations de la liste.
         Listing storage listing = listings[_tokenId];
+        if (!listing.isActive) revert NotListed();
+        if (!landToken.exists(_tokenId)) revert TokenDoesNotExist();
+        if (msg.value < listing.price) revert InsufficientFunds();
 
-        // Vérifie que le token est actuellement en vente.
-        require(listing.isActive, "Pas en vente");
-
-        // Vérifie que le token existe.
-        require(landToken.exists(_tokenId), "Token inexistant");
-
-        // Vérifie que l'acheteur a envoyé un montant suffisant.
-        require(msg.value >= listing.price, "Fonds insuffisants");
-
-        // Désactive la liste.
-        listing.isActive = false;
-
-        // Récupère les informations du vendeur et du prix.
         address seller = listing.seller;
         uint256 price = listing.price;
 
-        // Transfère le token à l'acheteur.
+        // Désactiver le listing avant les transferts
+        listing.isActive = false;
+
+        // Transfert du token
         landToken.transferFrom(address(this), msg.sender, _tokenId);
 
-        // Passe le paiement au vendeur via call.
+        // Transfert des fonds au vendeur
         (bool success, ) = payable(seller).call{value: price}("");
-        require(success, "Paiement echoue");
+        if (!success) revert TransferFailed();
 
+        // Remboursement de l'excédent si nécessaire
         if (msg.value > price) {
             (bool refundSuccess, ) = payable(msg.sender).call{
                 value: msg.value - price
             }("");
-            require(refundSuccess, "Refund failed");
+            if (!refundSuccess) revert TransferFailed();
         }
 
         emit TokenSold(_tokenId, seller, msg.sender, price);
@@ -157,22 +145,18 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
      * @dev Annule une liste de token.
      * @param _tokenId L'ID du token dont la liste doit être annulée.
      */
-    function cancelListing(uint256 _tokenId) external {
-        // Récupère les informations de la liste.
+    function cancelListing(uint256 _tokenId) external nonReentrant {
         Listing storage listing = listings[_tokenId];
+        if (listing.seller != msg.sender) revert NotSeller();
+        if (!listing.isActive) revert NotListed();
 
-        // Vérifie que le msg.sender est le vendeur.
-        require(listing.seller == msg.sender, "Non vendeur");
-
-        // Vérifie que le token est actuellement en vente.
-        require(listing.isActive, "Pas en vente");
-
-        // Update state before external calls
+        // Update state before external call
         listing.isActive = false;
 
-        // External call after state updates
-        landToken.transferFrom(address(this), msg.sender, _tokenId);
-
+        // Émettre l'événement avant l'appel externe
         emit ListingCancelled(_tokenId);
+
+        // External call last
+        landToken.transferFrom(address(this), msg.sender, _tokenId);
     }
 }
