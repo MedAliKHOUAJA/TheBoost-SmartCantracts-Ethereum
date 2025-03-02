@@ -15,7 +15,7 @@ contract LandRegistry is Ownable {
         uint256 availableTokens;
         uint256 pricePerToken;
         bool isTokenized;
-        string cid; // CID IPFS des documents associés au terrain
+        string cid; // CID des documents associés au terrain
     }
 
     struct Validation {
