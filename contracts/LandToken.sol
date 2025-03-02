@@ -87,25 +87,9 @@ contract LandToken is
      * Cette fonction ne peut être appelée que par le propriétaire du contrat.
      * @param _landId L'ID du terrain à tokenizer
      */
-    function tokenizeLand(uint256 _landId) external onlyOwner {
-        // Vérifie que le terrain existe et est validé dans le registre
-        (
-            bool isTokenized,
-            LandRegistry.ValidationStatus status,
-            ,
-            ,
-
-        ) = landRegistry.getLandDetails(_landId);
-        require(!isTokenized, "Terrain deja tokenise");
-        require(
-            status == LandRegistry.ValidationStatus.Valide,
-            "Terrain non valide"
-        );
-
-        // Appelle la fonction tokenizeLand du contrat LandRegistry
+    function tokenizeLand(uint256 _landId) external {
+        // Pas besoin de onlyOwner ici car seul le tokenizer peut appeler tokenizeLand dans LandRegistry
         landRegistry.tokenizeLand(_landId);
-
-        // Émet un événement pour la tokenisation
         emit LandTokenized(_landId);
     }
 
