@@ -2,8 +2,10 @@
 pragma solidity ^0.8.0;
 
 import "./Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 
-contract LandRegistry is Ownable {
+contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     struct Land {
         string location;
         uint256 surface;
@@ -15,7 +17,7 @@ contract LandRegistry is Ownable {
         uint256 availableTokens;
         uint256 pricePerToken;
         bool isTokenized;
-        string cid; // CID des documents associés au terrain
+        string cid; // CID  des documents associés au terrain
     }
 
     struct Validation {
@@ -45,7 +47,7 @@ contract LandRegistry is Ownable {
 
     uint256 private _landCounter;
     // variable pour le tokenizer
-    address public tokenizer;
+    address public immutable tokenizer;
 
     event LandRegistered(
         uint256 indexed landId,
@@ -73,6 +75,40 @@ contract LandRegistry is Ownable {
     );
     event LandTokenized(uint256 indexed landId);
 
+    error InvalidTokenizer();
+    error InvalidValidator();
+    error UnauthorizedValidator();
+    error InvalidCIDComments();
+    error ValidatorAlreadyValidated();
+    error LandNotRegistered();
+    error LandNotValid();
+    error LandAlreadyTokenized();
+    error InvalidTokenAmount();
+    error InsufficientTokens();
+
+    constructor(address _tokenizer) {
+        if (_tokenizer == address(0)) revert InvalidTokenizer();
+        tokenizer = _tokenizer;
+    }
+
+    modifier onlyTokenizer() {
+        require(msg.sender == tokenizer, "Not tokenizer");
+        _;
+    }
+
+    modifier onlyValidator() {
+        if (!validators[msg.sender]) revert UnauthorizedValidator();
+        _;
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     /**
      * @dev Ajoute un validateur.
      * @param _validator Adresse du validateur.
@@ -81,7 +117,8 @@ contract LandRegistry is Ownable {
     function addValidator(
         address _validator,
         ValidatorType _type
-    ) external onlyOwner {
+    ) external onlyOwner whenNotPaused {
+        if (_validator == address(0)) revert InvalidValidator();
         validators[_validator] = true;
         validatorTypes[_validator] = _type;
         emit ValidatorAdded(_validator, _type);
@@ -95,20 +132,17 @@ contract LandRegistry is Ownable {
      */
     function validateLand(
         uint256 _landId,
-        string memory _cidComments,
+        string calldata _cidComments,
         bool _isValid
-    ) external {
-        require(validators[msg.sender], "Non autorise");
-        require(bytes(_cidComments).length > 0, "CID Comments required");
+    ) external whenNotPaused onlyValidator nonReentrant {
+        if (bytes(_cidComments).length == 0) revert InvalidCIDComments();
 
-        // Vérifier si le validateur a déjà validé ce terrain
         for (uint256 i = 0; i < landValidations[_landId].length; i++) {
             if (landValidations[_landId][i].validator == msg.sender) {
-                revert("Validator already validated this land");
+                revert ValidatorAlreadyValidated();
             }
         }
 
-        // Ajouter la validation à l'historique
         landValidations[_landId].push(
             Validation({
                 validator: msg.sender,
@@ -119,7 +153,6 @@ contract LandRegistry is Ownable {
             })
         );
 
-        // Mettre à jour le statut du terrain
         if (!_isValid) {
             lands[_landId].status = ValidationStatus.Rejete;
         } else if (_checkAllValidations(_landId)) {
@@ -141,21 +174,14 @@ contract LandRegistry is Ownable {
 
         for (uint256 i = 0; i < landValidations[_landId].length; i++) {
             Validation memory validation = landValidations[_landId][i];
-            if (!validation.isValidated) continue; // Ignorer les validations non approuvées
+            if (!validation.isValidated) continue;
 
             ValidatorType vType = validation.validatorType;
-            if (vType == ValidatorType.Notaire && !hasNotaire) {
-                hasNotaire = true;
-            } else if (vType == ValidatorType.Geometre && !hasGeometre) {
-                hasGeometre = true;
-            } else if (vType == ValidatorType.ExpertJuridique && !hasExpert) {
-                hasExpert = true;
-            }
+            if (vType == ValidatorType.Notaire) hasNotaire = true;
+            else if (vType == ValidatorType.Geometre) hasGeometre = true;
+            else if (vType == ValidatorType.ExpertJuridique) hasExpert = true;
 
-            // Si toutes les validations sont présentes, arrêter la boucle
-            if (hasNotaire && hasGeometre && hasExpert) {
-                return true;
-            }
+            if (hasNotaire && hasGeometre && hasExpert) return true;
         }
 
         return false;
@@ -172,7 +198,7 @@ contract LandRegistry is Ownable {
         return landValidations[_landId];
     }
 
-     /**
+    /**
      * @dev Configure l'adresse du contrat autorisé à tokenizer les terrains
      * @param _tokenizer L'adresse du contrat tokenizer
      */
@@ -187,27 +213,32 @@ contract LandRegistry is Ownable {
      * @dev Tokenize un terrain. Seul le contrat tokenizer peut appeler cette fonction
      * @param _landId L'ID du terrain à tokenizer
      */
-    function tokenizeLand(uint256 _landId) external {
-        require(msg.sender == tokenizer, "Seul le tokenizer peut appeler cette fonction");
-        require(lands[_landId].isRegistered, "Terrain non enregistre");
-        require(lands[_landId].status == ValidationStatus.Valide, "Terrain non valide");
-        require(!lands[_landId].isTokenized, "Terrain deja tokenize");
-        
+    function tokenizeLand(
+        uint256 _landId
+    ) external whenNotPaused onlyTokenizer nonReentrant {
+        if (!lands[_landId].isRegistered) revert LandNotRegistered();
+        if (lands[_landId].status != ValidationStatus.Valide)
+            revert LandNotValid();
+        if (lands[_landId].isTokenized) revert LandAlreadyTokenized();
+
         lands[_landId].isTokenized = true;
         emit LandTokenized(_landId);
     }
 
     function registerLand(
-        string memory _location,
+        string calldata _location,
         uint256 _surface,
         uint256 _totalTokens,
         uint256 _pricePerToken,
-        string memory _cid
-    ) external {
-        require(_totalTokens > 0, "Nombre de tokens invalide");
-        require(bytes(_cid).length > 0, "CID IPFS requis");
+        string calldata _cid
+    ) external whenNotPaused nonReentrant {
+        if (_totalTokens == 0) revert InvalidTokenAmount();
+        if (bytes(_cid).length == 0) revert InvalidCIDComments();
 
-        _landCounter++;
+        unchecked {
+            _landCounter++;
+        }
+
         lands[_landCounter] = Land({
             location: _location,
             surface: _surface,
@@ -255,15 +286,19 @@ contract LandRegistry is Ownable {
         );
     }
 
- /**
+    /**
      * @dev Met à jour le nombre de tokens disponibles pour un terrain.
      * @param _landId ID du terrain.
      * @param _amount Montant à déduire des tokens disponibles.
      */
-    function updateAvailableTokens(uint256 _landId, uint256 _amount) external {
-        require(msg.sender == tokenizer, "Seul le tokenizer peut appeler cette fonction");
-        require(lands[_landId].isTokenized, "Terrain non tokenize");
-        require(lands[_landId].availableTokens >= _amount, "Pas assez de tokens disponibles");
+    function updateAvailableTokens(
+        uint256 _landId,
+        uint256 _amount
+    ) external whenNotPaused onlyTokenizer nonReentrant {
+        if (!lands[_landId].isTokenized) revert LandNotValid();
+        if (lands[_landId].availableTokens < _amount)
+            revert InsufficientTokens();
+
         lands[_landId].availableTokens -= _amount;
     }
 }

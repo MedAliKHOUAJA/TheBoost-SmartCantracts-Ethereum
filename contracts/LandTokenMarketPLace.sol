@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-
+import "./Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 import "./LandToken.sol";
 
 /**
  * @title LandTokenMarketplace
  * @dev Contrat permettant la vente, l'achat et l'échange de tokens ERC-721 (LandToken).
  */
-contract LandTokenMarketplace is ReentrancyGuard {
-    LandToken public landToken;
+contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
+    LandToken public immutable landToken;
 
     /**
      * @dev Structure représentant une liste de token à vendre.
@@ -42,7 +43,22 @@ contract LandTokenMarketplace is ReentrancyGuard {
      * @param buyer L'adresse de l'acheteur.
      * @param price Le prix payé pour le token.
      */
-    event TokenSold(uint256 indexed tokenId, address seller, address buyer, uint256 price);
+    event TokenSold(
+        uint256 indexed tokenId,
+        address seller,
+        address buyer,
+        uint256 price
+    );
+
+    error InvalidTokenAddress();
+    error NotTokenOwner();
+    error InvalidPrice();
+    error AlreadyListed();
+    error NotListed();
+    error TokenDoesNotExist();
+    error InsufficientFunds();
+    error NotSeller();
+    error TransferFailed();
 
     /**
      * @dev Événement émis lorsqu'une liste est annulée.
@@ -55,8 +71,16 @@ contract LandTokenMarketplace is ReentrancyGuard {
      * @param _landTokenAddress Adresse du contrat LandToken.
      */
     constructor(address _landTokenAddress) {
-        require(_landTokenAddress != address(0), "Adresse invalide");
+        if (_landTokenAddress == address(0)) revert InvalidTokenAddress();
         landToken = LandToken(_landTokenAddress);
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     /**
@@ -120,12 +144,13 @@ contract LandTokenMarketplace is ReentrancyGuard {
         (bool success, ) = payable(seller).call{value: price}("");
         require(success, "Paiement echoue");
 
-        // Rembourse le surplus si nécessaire.
         if (msg.value > price) {
-            payable(msg.sender).transfer(msg.value - price);
+            (bool refundSuccess, ) = payable(msg.sender).call{
+                value: msg.value - price
+            }("");
+            require(refundSuccess, "Refund failed");
         }
 
-        // Émet l'événement TokenSold.
         emit TokenSold(_tokenId, seller, msg.sender, price);
     }
 
@@ -143,13 +168,12 @@ contract LandTokenMarketplace is ReentrancyGuard {
         // Vérifie que le token est actuellement en vente.
         require(listing.isActive, "Pas en vente");
 
-        // Désactive la liste.
+        // Update state before external calls
         listing.isActive = false;
 
-        // Retourne le token au vendeur.
+        // External call after state updates
         landToken.transferFrom(address(this), msg.sender, _tokenId);
 
-        // Émet l'événement ListingCancelled.
         emit ListingCancelled(_tokenId);
     }
 }

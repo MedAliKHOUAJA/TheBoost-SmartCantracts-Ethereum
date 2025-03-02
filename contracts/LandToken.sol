@@ -5,17 +5,25 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 import "./LandRegistry.sol";
 import "./Ownable.sol";
 
-contract LandToken is ERC721, ERC721URIStorage, ReentrancyGuard,Ownable {
+contract LandToken is
+    ERC721,
+    ERC721URIStorage,
+    ReentrancyGuard,
+    Pausable,
+    Ownable
+{
     using Counters for Counters.Counter;
 
     // Compteur pour générer des IDs uniques pour chaque token
     Counters.Counter private _tokenIds;
 
     // Référence vers le contrat LandRegistry
-    LandRegistry public landRegistry;
+    LandRegistry public immutable landRegistry;
 
     // Structure pour stocker les détails du token
     struct TokenData {
@@ -32,82 +40,125 @@ contract LandToken is ERC721, ERC721URIStorage, ReentrancyGuard,Ownable {
     mapping(uint256 => uint256[]) public landTokens;
 
     // Événements
-    event TokenMinted(uint256 indexed landId, uint256 indexed tokenId, address owner);
+    event TokenMinted(
+        uint256 indexed landId,
+        uint256 indexed tokenId,
+        address owner
+    );
     event TokenTransferred(uint256 indexed tokenId, address from, address to);
     event LandTokenized(uint256 indexed landId);
+    event EtherWithdrawn(address indexed to, uint256 amount);
 
-    constructor(address _landRegistryAddress) ERC721("Real Estate Token", "RET") {
-        require(_landRegistryAddress != address(0), "Invalid registry address");
+    error InvalidRegistry();
+    error NoEtherToWithdraw();
+    error TransferFailed();
+    error LandNotTokenized();
+    error LandNotValidated();
+    error NoTokensAvailable();
+    error InsufficientPayment();
+    error InvalidTransferParameters();
+
+    constructor(
+        address _landRegistryAddress
+    ) ERC721("Real Estate Token", "RET") {
+        if (_landRegistryAddress == address(0)) revert InvalidRegistry();
         landRegistry = LandRegistry(_landRegistryAddress);
     }
 
-        /**
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
      * @dev Remplace la fonction _burn pour résoudre le conflit entre ERC721 et ERC721URIStorage.
      */
-    function _burn(uint256 tokenId) internal override(ERC721, ERC721URIStorage) {
+    function _burn(
+        uint256 tokenId
+    ) internal override(ERC721, ERC721URIStorage) {
         super._burn(tokenId);
     }
 
-     /**
+    /**
      * @dev Tokenize un terrain dans le registre.
      * Cette fonction ne peut être appelée que par le propriétaire du contrat.
      * @param _landId L'ID du terrain à tokenizer
      */
     function tokenizeLand(uint256 _landId) external onlyOwner {
         // Vérifie que le terrain existe et est validé dans le registre
-        (bool isTokenized, LandRegistry.ValidationStatus status, , ,) = landRegistry.getLandDetails(_landId);
+        (
+            bool isTokenized,
+            LandRegistry.ValidationStatus status,
+            ,
+            ,
+
+        ) = landRegistry.getLandDetails(_landId);
         require(!isTokenized, "Terrain deja tokenise");
-        require(status == LandRegistry.ValidationStatus.Valide, "Terrain non valide");
-        
+        require(
+            status == LandRegistry.ValidationStatus.Valide,
+            "Terrain non valide"
+        );
+
         // Appelle la fonction tokenizeLand du contrat LandRegistry
         landRegistry.tokenizeLand(_landId);
-        
+
         // Émet un événement pour la tokenisation
         emit LandTokenized(_landId);
     }
 
+    function withdrawEther() external nonReentrant onlyOwner {
+        uint256 balance = address(this).balance;
+        if (balance == 0) revert NoEtherToWithdraw();
+
+        (bool success, ) = payable(owner()).call{value: balance}("");
+        if (!success) revert TransferFailed();
+
+        emit EtherWithdrawn(owner(), balance);
+    }
 
     /**
      * @dev Crée un nouveau token pour un terrain donné.
      * @param _landId ID du terrain.
      * @return ID du nouveau token.
      */
-   function mintToken(uint256 _landId) external payable nonReentrant returns (uint256) {
-    // Récupérer les données du terrain depuis LandRegistry
-    (bool isTokenized, LandRegistry.ValidationStatus status, uint256 availableTokens, uint256 pricePerToken, ) = landRegistry.getLandDetails(_landId);
+    function mintToken(
+        uint256 _landId
+    ) external payable whenNotPaused nonReentrant returns (uint256) {
+        (
+            bool isTokenized,
+            LandRegistry.ValidationStatus status,
+            uint256 availableTokens,
+            uint256 pricePerToken,
 
-    // Vérifications sur le terrain
-    require(isTokenized, "Land not tokenized");
-    require(status == LandRegistry.ValidationStatus.Valide, "Land not validated");
-    require(availableTokens > 0, "No tokens available");
-    require(msg.value >= pricePerToken, "Insufficient payment");
+        ) = landRegistry.getLandDetails(_landId);
 
-    // Incrémenter le compteur de tokens
-    _tokenIds.increment();
-    uint256 newTokenId = _tokenIds.current();
+        if (!isTokenized) revert LandNotTokenized();
+        if (status != LandRegistry.ValidationStatus.Valide)
+            revert LandNotValidated();
+        if (availableTokens == 0) revert NoTokensAvailable();
+        if (msg.value < pricePerToken) revert InsufficientPayment();
 
-    // Stocker les détails du token
-    tokenData[newTokenId] = TokenData({
-        landId: _landId,
-        tokenNumber: newTokenId,
-        purchasePrice: msg.value,
-        mintDate: block.timestamp
-    });
+        _tokenIds.increment();
+        uint256 newTokenId = _tokenIds.current();
 
-    // Mettre à jour les tokens disponibles pour le terrain via LandRegistry
-    landRegistry.updateAvailableTokens(_landId, 1);
+        tokenData[newTokenId] = TokenData({
+            landId: _landId,
+            tokenNumber: newTokenId,
+            purchasePrice: msg.value,
+            mintDate: block.timestamp
+        });
 
-    // Associer le token au terrain
-    landTokens[_landId].push(newTokenId);
+        landTokens[_landId].push(newTokenId);
 
-    // Créer et attribuer le token
-    _safeMint(msg.sender, newTokenId);
+        landRegistry.updateAvailableTokens(_landId, 1);
+        _safeMint(msg.sender, newTokenId);
 
-    // Émettre un événement
-    emit TokenMinted(_landId, newTokenId, msg.sender);
-
-    return newTokenId;
-}
+        emit TokenMinted(_landId, newTokenId, msg.sender);
+        return newTokenId;
+    }
 
     /**
      * @dev Transfère un token d'un propriétaire à un autre.
@@ -119,8 +170,8 @@ contract LandToken is ERC721, ERC721URIStorage, ReentrancyGuard,Ownable {
         require(ownerOf(_tokenId) != address(0), "Token does not exist"); // Vérifie si le token existe
         require(
             ownerOf(_tokenId) == msg.sender || // Propriétaire actuel
-            isApprovedForAll(ownerOf(_tokenId), _to) || // Approuvé pour tous
-            getApproved(_tokenId) == msg.sender, // Approuvé spécifiquement
+                isApprovedForAll(ownerOf(_tokenId), _to) || // Approuvé pour tous
+                getApproved(_tokenId) == msg.sender, // Approuvé spécifiquement
             "Not authorized"
         );
 
@@ -144,21 +195,23 @@ contract LandToken is ERC721, ERC721URIStorage, ReentrancyGuard,Ownable {
         }
     }
 
-/**
- * @dev Retourne les détails d'un token.
- * @param _tokenId ID du token.
- * @return landId ID du terrain associé au token.
- * @return tokenNumber Numéro unique du token.
- * @return purchasePrice Prix d'achat du token.
- * @return mintDate Date de création (mint) du token.
- */
+    /**
+     * @dev Retourne les détails d'un token.
+     * @param _tokenId ID du token.
+     * @return landId ID du terrain associé au token.
+     * @return tokenNumber Numéro unique du token.
+     * @return purchasePrice Prix d'achat du token.
+     * @return mintDate Date de création (mint) du token.
+     */
 
     /**
      * @dev Retourne tous les tokens associés à un terrain.
      * @param _landId ID du terrain.
      * @return Liste des IDs des tokens associés au terrain.
      */
-    function getTokensByLand(uint256 _landId) external view returns (uint256[] memory) {
+    function getTokensByLand(
+        uint256 _landId
+    ) external view returns (uint256[] memory) {
         return landTokens[_landId];
     }
 
@@ -167,7 +220,9 @@ contract LandToken is ERC721, ERC721URIStorage, ReentrancyGuard,Ownable {
      * @param tokenId ID du token.
      * @return URI du token.
      */
-    function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+    function tokenURI(
+        uint256 tokenId
+    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
         return super.tokenURI(tokenId);
     }
 
@@ -176,7 +231,9 @@ contract LandToken is ERC721, ERC721URIStorage, ReentrancyGuard,Ownable {
      * @param interfaceId Identifiant de l'interface.
      * @return true si l'interface est supportée, false sinon.
      */
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721URIStorage) returns (bool) {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 }
