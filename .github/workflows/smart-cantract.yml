@@ -37,10 +37,10 @@ jobs:
       - name: Run Hardhat compile
         run: npx hardhat compile
 
-      - name: Run unit tests
-        run: npx hardhat test
-        env:
-          REPORT_GAS: true
+      # - name: Run unit tests
+      #   run: npx hardhat test
+      #   env:
+      #     REPORT_GAS: true
 
       - name: Run coverage
         run: npx hardhat coverage
