@@ -19,25 +19,24 @@ describe("Land System Tests", function () {
             ownable = await Ownable.deploy();
             await ownable.waitForDeployment();
 
-            // 2. Déployer d'abord LandToken avec une adresse temporaire
-            console.log("Déploiement initial de LandToken...");
-            const LandToken = await ethers.getContractFactory("LandToken");
-            const tempLandToken = await LandToken.deploy(owner.address);
-            await tempLandToken.waitForDeployment();
-            const tempLandTokenAddress = await tempLandToken.getAddress();
-
-            // 3. Déployer LandRegistry avec l'adresse de LandToken
+            // 2. Déployer LandRegistry avec l'adresse du owner temporairement
             console.log("Déploiement de LandRegistry...");
             const LandRegistry = await ethers.getContractFactory("LandRegistry");
-            landRegistry = await LandRegistry.deploy(tempLandTokenAddress);
+            landRegistry = await LandRegistry.deploy(owner.address);
             await landRegistry.waitForDeployment();
             const landRegistryAddress = await landRegistry.getAddress();
 
-            // 4. Déployer le vrai LandToken avec l'adresse de LandRegistry
-            console.log("Déploiement final de LandToken...");
+            // 3. Déployer LandToken avec l'adresse du LandRegistry
+            console.log("Déploiement de LandToken...");
+            const LandToken = await ethers.getContractFactory("LandToken");
             landToken = await LandToken.deploy(landRegistryAddress);
             await landToken.waitForDeployment();
             const landTokenAddress = await landToken.getAddress();
+
+            // 4. Redéployer LandRegistry avec l'adresse finale de LandToken
+            console.log("Redéploiement de LandRegistry avec la bonne adresse de tokenizer...");
+            landRegistry = await LandRegistry.deploy(landTokenAddress);
+            await landRegistry.waitForDeployment();
 
             // 5. Déploiement de LandTokenMarketplace
             console.log("Déploiement de LandTokenMarketplace...");
@@ -56,6 +55,7 @@ describe("Land System Tests", function () {
             throw error;
         }
     });
+
     describe("1. Ownable Tests", function () {
         it("Doit avoir le bon propriétaire initial", async function () {
             expect(await ownable.owner()).to.equal(owner.address);
@@ -94,7 +94,7 @@ describe("Land System Tests", function () {
 
     describe("3. LandToken Tests", function () {
         let landId;
-    
+
         beforeEach(async function () {
             // Créer un nouveau terrain
             const tx = await landRegistry.connect(user1).registerLand(
@@ -106,27 +106,27 @@ describe("Land System Tests", function () {
             );
             await tx.wait();
             landId = 1;
-    
+
             // Valider le terrain
             await landRegistry.connect(validator1).validateLand(landId, "QmValidationCID1", true);
             await landRegistry.connect(validator2).validateLand(landId, "QmValidationCID2", true);
             await landRegistry.connect(validator3).validateLand(landId, "QmValidationCID3", true);
         });
-    
+
         it("Doit permettre la tokenisation et le minting", async function () {
-            // Tokenisation du terrain par LandToken (qui est le tokenizer)
+            // La tokenisation devrait maintenant fonctionner car LandToken est le tokenizer
             await landToken.connect(owner).tokenizeLand(landId);
-    
+
             // Vérifier la tokenisation
             const [isTokenized] = await landRegistry.getLandDetails(landId);
             expect(isTokenized).to.be.true;
-    
+
             // Minting d'un token
             await landToken.connect(user1).mintToken(landId, {
                 value: ethers.parseEther("500")
             });
-    
-            // Vérifier le propriétaire du token
+
+            // Vérifications
             expect(await landToken.ownerOf(1)).to.equal(user1.address);
         });
     });
