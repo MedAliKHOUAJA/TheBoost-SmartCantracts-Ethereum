@@ -47,7 +47,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
     uint256 private _landCounter;
     // variable pour le tokenizer
-    address public immutable tokenizer;
+    address public  tokenizer;
 
     event LandRegistered(
         uint256 indexed landId,
@@ -84,8 +84,15 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     error InsufficientTokens();
 
     constructor(address _tokenizer) {
-        if (_tokenizer == address(0)) revert InvalidTokenizer();
-        tokenizer = _tokenizer; // Seule initialisation possible pour une variable immutable
+        if (_tokenizer != address(0)) {
+            tokenizer = _tokenizer;
+        }
+    }
+
+        // Fonction pour mettre à jour le tokenizer
+    function setTokenizer(address _tokenizer) external onlyOwner {
+        require(_tokenizer != address(0), "Invalid address");
+        tokenizer = _tokenizer;
     }
 
     modifier onlyTokenizer() {
@@ -290,4 +297,6 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
         lands[_landId].availableTokens -= _amount;
     }
+
+
 }
