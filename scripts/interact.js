@@ -19,6 +19,9 @@ async function main() {
     const landToken = LandToken.attach(addresses.landToken);
     const marketplace = LandTokenMarketplace.attach(addresses.marketplace);
 
+    // Vérification du tokenizer
+    console.log("\nTokenizer configuré:", await landRegistry.tokenizer());
+
     // Vérification et configuration des validateurs
     console.log("\nVérification et configuration des validateurs...");
     
@@ -80,7 +83,7 @@ async function main() {
 
     // Test 3: Tokenisation
     console.log("\nTest 3: Tokenisation");
-    await landToken.tokenizeLand(1);
+    await landToken.connect(owner).tokenizeLand(1); // Appel depuis le tokenizer configuré
     console.log("Terrain tokenisé avec succès");
 
     // Test 4: Minting d'un token
