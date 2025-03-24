@@ -116,7 +116,7 @@ contract LandToken is
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
             uint256 pricePerToken,
-            string memory cid
+            //string memory cid
         ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();
