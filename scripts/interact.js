@@ -88,8 +88,8 @@ async function main() {
     console.log("Address of LandToken:", await landToken.getAddress());
     console.log("Tokenizer configured in LandRegistry:", await landRegistry.tokenizer());
 
-    // Appel de tokenizeLand sans connect(owner)
-    await landToken.tokenizeLand(1);
+    // Appeler tokenizeLand avec le compte owner
+    await landToken.connect(owner).tokenizeLand(1);
     console.log("Terrain tokenisé avec succès");
 
     // Test 4: Minting d'un token
