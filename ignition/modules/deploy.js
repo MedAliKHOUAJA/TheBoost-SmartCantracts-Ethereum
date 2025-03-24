@@ -6,19 +6,20 @@ async function main() {
   // Récupérer les signers
   const [owner, user1, user2, validator1, validator2, validator3] = await hre.ethers.getSigners();
   
-  // 1. Déploiement de LandRegistry
-  console.log("Déploiement de LandRegistry...");
-  const LandRegistry = await hre.ethers.getContractFactory("LandRegistry");
-  const landRegistry = await LandRegistry.deploy();
-  await landRegistry.waitForDeployment();
-  console.log("LandRegistry déployé à:", await landRegistry.getAddress());
+ // Déployer LandToken
+ const LandToken = await ethers.getContractFactory("LandToken");
+ const landToken = await LandToken.deploy();
+ await landToken.waitForDeployment();
+ console.log("LandToken déployé à:", await landToken.getAddress());
 
-  // 2. Déploiement de LandToken
-  console.log("Déploiement de LandToken...");
-  const LandToken = await hre.ethers.getContractFactory("LandToken");
-  const landToken = await LandToken.deploy(await landRegistry.getAddress());
-  await landToken.waitForDeployment();
-  console.log("LandToken déployé à:", await landToken.getAddress());
+ // Déployer LandRegistry avec l'adresse de LandToken comme tokenizer
+ const LandRegistry = await ethers.getContractFactory("LandRegistry");
+ const landRegistry = await LandRegistry.deploy(await landToken.getAddress());
+ await landRegistry.waitForDeployment();
+ console.log("LandRegistry déployé à:", await landRegistry.getAddress());
+
+ // Vérifier que le tokenizer est correctement configuré
+ console.log("Tokenizer configuré:", await landRegistry.tokenizer());
 
   // 3. Déploiement de LandTokenMarketplace
   console.log("Déploiement de LandTokenMarketplace...");
