@@ -84,12 +84,32 @@ async function main() {
     // Test 3: Tokenisation
     console.log("\nTest 3: Tokenisation");
 
-    // Vérification des adresses pour débogage
-    console.log("Address of LandToken:", await landToken.getAddress());
-    console.log("Tokenizer configured in LandRegistry:", await landRegistry.tokenizer());
+    // Vérification et configuration du tokenizer
+    console.log("Vérification et configuration du tokenizer...");
+    const landTokenAddress = await landToken.getAddress();
+    const currentTokenizer = await landRegistry.tokenizer();
 
-    // Appeler tokenizeLand avec le compte owner
-    await landToken.connect(owner).tokenizeLand(1);
+    console.log("Address of LandToken:", landTokenAddress);
+    console.log("Current tokenizer in LandRegistry:", currentTokenizer);
+
+    // Vérifier si le tokenizer doit être mis à jour
+    if (currentTokenizer.toLowerCase() !== landTokenAddress.toLowerCase()) {
+      console.log("Mise à jour du tokenizer dans LandRegistry...");
+      const setTokenizerTx = await landRegistry.connect(owner).setTokenizer(landTokenAddress);
+      await setTokenizerTx.wait();
+      console.log("Nouveau tokenizer configuré:", await landRegistry.tokenizer());
+    }
+
+    // Vérification finale avant tokenisation
+    const finalTokenizer = await landRegistry.tokenizer();
+    if (finalTokenizer.toLowerCase() !== landTokenAddress.toLowerCase()) {
+      throw new Error("La configuration du tokenizer a échoué");
+    }
+
+    // Tokenisation du terrain
+    console.log("Tokenisation du terrain...");
+    const tokenizeTx = await landToken.connect(owner).tokenizeLand(1);
+    await tokenizeTx.wait();
     console.log("Terrain tokenisé avec succès");
 
     // Test 4: Minting d'un token
