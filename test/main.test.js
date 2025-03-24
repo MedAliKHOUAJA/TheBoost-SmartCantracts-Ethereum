@@ -5,11 +5,10 @@ describe("Land System Tests", function () {
     let ownable, landRegistry, landToken, marketplace;
     let owner, user1, user2, validator1, validator2, validator3;
     const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-    let tokenId; // Déclarer tokenId globalement
+    let tokenId;
 
     this.timeout(50000);
 
-   
     beforeEach(async function () {
         try {
             // Récupération des signataires
@@ -22,10 +21,10 @@ describe("Land System Tests", function () {
             ownable = await Ownable.deploy();
             await ownable.waitForDeployment();
 
-            // 2. Déployer LandRegistry initial avec une adresse temporaire
-            console.log("Déploiement initial de LandRegistry...");
+            // 2. Déployer LandRegistry sans paramètre
+            console.log("Déploiement de LandRegistry...");
             const LandRegistry = await ethers.getContractFactory("LandRegistry");
-            landRegistry = await LandRegistry.deploy(ZERO_ADDRESS); // Tokenizer non défini initialement
+            landRegistry = await LandRegistry.deploy(); // Suppression du paramètre ZERO_ADDRESS
             await landRegistry.waitForDeployment();
             console.log("LandRegistry déployé à:", await landRegistry.getAddress());
 
@@ -36,7 +35,7 @@ describe("Land System Tests", function () {
             await landToken.waitForDeployment();
             console.log("LandToken déployé à:", await landToken.getAddress());
 
-            // 4. Configurer le tokenizer après le déploiement
+            // 4. Configurer le tokenizer
             console.log("Configuration du tokenizer...");
             await landRegistry.connect(owner).setTokenizer(await landToken.getAddress());
 
@@ -52,6 +51,12 @@ describe("Land System Tests", function () {
             await landRegistry.connect(owner).addValidator(validator1.address, 0);
             await landRegistry.connect(owner).addValidator(validator2.address, 1);
             await landRegistry.connect(owner).addValidator(validator3.address, 2);
+
+            // Vérification de la configuration du tokenizer
+            const configuredTokenizer = await landRegistry.tokenizer();
+            if (configuredTokenizer.toLowerCase() !== (await landToken.getAddress()).toLowerCase()) {
+                throw new Error("Tokenizer non configuré correctement");
+            }
 
         } catch (error) {
             console.error("Erreur détaillée lors du déploiement:", error);
