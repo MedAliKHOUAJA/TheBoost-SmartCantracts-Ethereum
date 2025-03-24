@@ -6,7 +6,7 @@ async function main() {
   try {
     // Charger les adresses depuis le fichier généré par deploy.js
     const addresses = require('../deployed-addresses.json');
-    
+
     // Récupérer les signers pour les tests
     const [owner, user1, user2, validator1, validator2, validator3] = await hre.ethers.getSigners();
 
@@ -24,7 +24,7 @@ async function main() {
 
     // Vérification et configuration des validateurs
     console.log("\nVérification et configuration des validateurs...");
-    
+
     // Vérifier si les validateurs sont déjà configurés
     const isValidator1 = await landRegistry.validators(validator1.address);
     const isValidator2 = await landRegistry.validators(validator2.address);
@@ -32,16 +32,16 @@ async function main() {
 
     // Configurer les validateurs s'ils ne le sont pas déjà
     if (!isValidator1) {
-        console.log("Configuration du validateur 1 (Notaire)...");
-        await landRegistry.connect(owner).addValidator(validator1.address, 0);
+      console.log("Configuration du validateur 1 (Notaire)...");
+      await landRegistry.connect(owner).addValidator(validator1.address, 0);
     }
     if (!isValidator2) {
-        console.log("Configuration du validateur 2 (Geometre)...");
-        await landRegistry.connect(owner).addValidator(validator2.address, 1);
+      console.log("Configuration du validateur 2 (Geometre)...");
+      await landRegistry.connect(owner).addValidator(validator2.address, 1);
     }
     if (!isValidator3) {
-        console.log("Configuration du validateur 3 (Expert Juridique)...");
-        await landRegistry.connect(owner).addValidator(validator3.address, 2);
+      console.log("Configuration du validateur 3 (Expert Juridique)...");
+      await landRegistry.connect(owner).addValidator(validator3.address, 2);
     }
 
     // Vérifier que les validateurs sont bien configurés
@@ -50,7 +50,7 @@ async function main() {
     const checkValidator3 = await landRegistry.validators(validator3.address);
 
     if (!checkValidator1 || !checkValidator2 || !checkValidator3) {
-        throw new Error("La configuration des validateurs a échoué");
+      throw new Error("La configuration des validateurs a échoué");
     }
     console.log("Tous les validateurs sont correctement configurés");
 
@@ -83,7 +83,13 @@ async function main() {
 
     // Test 3: Tokenisation
     console.log("\nTest 3: Tokenisation");
-    await landToken.connect(owner).tokenizeLand(1); // Appel depuis le tokenizer configuré
+
+    // Vérification des adresses pour débogage
+    console.log("Address of LandToken:", await landToken.getAddress());
+    console.log("Tokenizer configured in LandRegistry:", await landRegistry.tokenizer());
+
+    // Appel de tokenizeLand sans connect(owner)
+    await landToken.tokenizeLand(1);
     console.log("Terrain tokenisé avec succès");
 
     // Test 4: Minting d'un token
@@ -97,7 +103,7 @@ async function main() {
     console.log("\nTest 5: Listing sur le marketplace");
     const tokenId = 1;
     const listingPrice = hre.ethers.parseEther("1000");
-    
+
     await landToken.connect(user1).approve(addresses.marketplace, tokenId);
     await marketplace.connect(user1).listToken(tokenId, listingPrice);
     console.log("Token listé sur le marketplace");
