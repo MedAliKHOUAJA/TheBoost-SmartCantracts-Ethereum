@@ -88,7 +88,7 @@ contract LandToken is
      * @param _landId L'ID du terrain à tokenizer
      */
     function tokenizeLand(uint256 _landId) external {
-        require(msg.sender == landRegistry.tokenizer(), "Not tokenizer");
+        // Pas besoin de onlyOwner ici car seul le tokenizer peut appeler tokenizeLand dans LandRegistry
         landRegistry.tokenizeLand(_landId);
         emit LandTokenized(_landId);
     }
@@ -116,9 +116,8 @@ contract LandToken is
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
             uint256 pricePerToken,
-
-        ) = //string memory cid
-            landRegistry.getLandDetails(_landId);
+            //string memory cid
+        ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();
         if (status != LandRegistry.ValidationStatus.Valide)
@@ -221,4 +220,6 @@ contract LandToken is
     ) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
+
+
 }
