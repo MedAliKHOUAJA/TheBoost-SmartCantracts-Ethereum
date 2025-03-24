@@ -47,7 +47,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
     uint256 private _landCounter;
     // variable pour le tokenizer
-    address public  tokenizer;
+    address public tokenizer;
 
     event LandRegistered(
         uint256 indexed landId,
@@ -83,13 +83,11 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     error InvalidTokenAmount();
     error InsufficientTokens();
 
-    constructor(address _tokenizer) {
-        if (_tokenizer != address(0)) {
-            tokenizer = _tokenizer;
-        }
+    constructor() {
+
     }
 
-        // Fonction pour mettre à jour le tokenizer
+    // Fonction pour mettre à jour le tokenizer
     function setTokenizer(address _tokenizer) external onlyOwner {
         require(_tokenizer != address(0), "Invalid address");
         tokenizer = _tokenizer;
@@ -202,8 +200,6 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         return landValidations[_landId];
     }
 
-
-
     /**
      * @dev Tokenize un terrain. Seul le contrat tokenizer peut appeler cette fonction
      * @param _landId L'ID du terrain à tokenizer
@@ -219,7 +215,6 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         lands[_landId].isTokenized = true;
         emit LandTokenized(_landId);
     }
-
 
     function registerLand(
         string calldata _location,
@@ -297,6 +292,4 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
         lands[_landId].availableTokens -= _amount;
     }
-
-
 }

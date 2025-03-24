@@ -6,26 +6,25 @@ async function main() {
   // Récupérer les signers
   const [owner, user1, user2, validator1, validator2, validator3] = await hre.ethers.getSigners();
   
-  // 1. Déploiement de LandRegistry initial avec une adresse temporaire
-  console.log("Déploiement initial de LandRegistry...");
+  // 1. Déploiement de LandRegistry sans paramètre dans le constructeur
+  console.log("Déploiement de LandRegistry...");
   const LandRegistry = await hre.ethers.getContractFactory("LandRegistry");
-  const tempLandRegistry = await LandRegistry.deploy(owner.address); // Utilisation d'une adresse temporaire
-  await tempLandRegistry.waitForDeployment();
-  console.log("LandRegistry initial déployé à:", await tempLandRegistry.getAddress());
+  const landRegistry = await LandRegistry.deploy();
+  await landRegistry.waitForDeployment();
+  console.log("LandRegistry déployé à:", await landRegistry.getAddress());
 
-  // 2. Déploiement de LandToken
+  // 2. Déploiement de LandToken avec l'adresse du LandRegistry
   console.log("Déploiement de LandToken...");
   const LandToken = await hre.ethers.getContractFactory("LandToken");
-  const landToken = await LandToken.deploy(await tempLandRegistry.getAddress());
+  const landToken = await LandToken.deploy(await landRegistry.getAddress());
   await landToken.waitForDeployment();
   const landTokenAddress = await landToken.getAddress();
   console.log("LandToken déployé à:", landTokenAddress);
 
-  // 3. Déploiement du LandRegistry final avec l'adresse de LandToken
-  console.log("Déploiement du LandRegistry final...");
-  const landRegistry = await LandRegistry.deploy(landTokenAddress);
-  await landRegistry.waitForDeployment();
-  console.log("LandRegistry final déployé à:", await landRegistry.getAddress());
+  // 3. Configuration du tokenizer dans LandRegistry
+  console.log("Configuration du tokenizer dans LandRegistry...");
+  await landRegistry.connect(owner).setTokenizer(landTokenAddress);
+  console.log("Tokenizer configuré dans LandRegistry");
 
   // 4. Déploiement de LandTokenMarketplace
   console.log("Déploiement de LandTokenMarketplace...");
