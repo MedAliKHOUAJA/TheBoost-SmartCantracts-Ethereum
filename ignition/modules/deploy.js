@@ -1,25 +1,26 @@
 const hre = require("hardhat");
+const fs = require("fs");
 
 async function main() {
   console.log("Déploiement des contrats...");
 
   // Récupérer les signers
   const [owner, user1, user2, validator1, validator2, validator3] = await hre.ethers.getSigners();
-  
- // Déployer LandToken
- const LandToken = await ethers.getContractFactory("LandToken");
- const landToken = await LandToken.deploy();
- await landToken.waitForDeployment();
- console.log("LandToken déployé à:", await landToken.getAddress());
 
- // Déployer LandRegistry avec l'adresse de LandToken comme tokenizer
- const LandRegistry = await ethers.getContractFactory("LandRegistry");
- const landRegistry = await LandRegistry.deploy(await landToken.getAddress());
- await landRegistry.waitForDeployment();
- console.log("LandRegistry déployé à:", await landRegistry.getAddress());
+  // 1. Déployer LandToken
+  const LandToken = await ethers.getContractFactory("LandToken");
+  const landToken = await LandToken.deploy();
+  await landToken.waitForDeployment();
+  console.log("LandToken déployé à:", await landToken.getAddress());
 
- // Vérifier que le tokenizer est correctement configuré
- console.log("Tokenizer configuré:", await landRegistry.tokenizer());
+  // 2. Déployer LandRegistry avec l'adresse de LandToken comme tokenizer
+  const LandRegistry = await ethers.getContractFactory("LandRegistry");
+  const landRegistry = await LandRegistry.deploy(await landToken.getAddress());
+  await landRegistry.waitForDeployment();
+  console.log("LandRegistry déployé à:", await landRegistry.getAddress());
+
+  // Vérifier que le tokenizer est correctement configuré
+  console.log("Tokenizer configuré:", await landRegistry.tokenizer());
 
   // 3. Déploiement de LandTokenMarketplace
   console.log("Déploiement de LandTokenMarketplace...");
@@ -34,10 +35,6 @@ async function main() {
   await landRegistry.connect(owner).addValidator(validator2.address, 1); // Géomètre
   await landRegistry.connect(owner).addValidator(validator3.address, 2); // Expert Juridique
 
-  // 5. Configuration du tokenizer
-  console.log("Configuration du tokenizer...");
-  await landRegistry.connect(owner).setTokenizer(await landToken.getAddress());
-
   console.log("\nDéploiement terminé !");
   console.log("===================");
   console.log("Adresses des contrats :");
@@ -50,7 +47,6 @@ async function main() {
   console.log("Expert Juridique:", validator3.address);
 
   // Écrire les adresses dans un fichier pour référence future
-  const fs = require("fs");
   const addresses = {
     landRegistry: await landRegistry.getAddress(),
     landToken: await landToken.getAddress(),
