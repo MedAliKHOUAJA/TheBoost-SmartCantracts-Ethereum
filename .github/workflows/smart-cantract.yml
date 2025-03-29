@@ -74,7 +74,7 @@ jobs:
           echo "ETHERSCAN_API_KEY=${{ secrets.ETHERSCAN_API_KEY }}" >> .env
 
       - name: Deploy to Sepolia
-        run: npx hardhat run scripts/deploy-sepolia.js --network sepolia
+        run: npx hardhat run ignition/modules/deploy.js --network sepolia
         continue-on-error: false
 
       - name: Add Deployment Note
