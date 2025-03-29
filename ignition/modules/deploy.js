@@ -1,84 +1,89 @@
 const hre = require("hardhat");
+const fs = require("fs");
 
 async function main() {
-  console.log("Déploiement des contrats...");
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("Deploying contracts with the account:", deployer.address);
 
-  // Récupérer les signers
-  const [owner, user1, user2, validator1, validator2, validator3] = await hre.ethers.getSigners();
-  
-  // 1. Déploiement de LandRegistry sans paramètre dans le constructeur
-  console.log("Déploiement de LandRegistry...");
-  const LandRegistry = await hre.ethers.getContractFactory("LandRegistry");
-  const landRegistry = await LandRegistry.deploy();
-  await landRegistry.waitForDeployment();
-  console.log("LandRegistry déployé à:", await landRegistry.getAddress());
+  try {
+    // 1. Deploy LandRegistry
+    console.log("Deploying LandRegistry...");
+    const LandRegistry = await hre.ethers.getContractFactory("LandRegistry");
+    const landRegistry = await LandRegistry.deploy();
+    await landRegistry.waitForDeployment();
+    console.log("LandRegistry deployed to:", await landRegistry.getAddress());
 
-  // 2. Déploiement de LandToken avec l'adresse du LandRegistry
-  console.log("Déploiement de LandToken...");
-  const LandToken = await hre.ethers.getContractFactory("LandToken");
-  const landToken = await LandToken.deploy(await landRegistry.getAddress());
-  await landToken.waitForDeployment();
-  const landTokenAddress = await landToken.getAddress();
-  console.log("LandToken déployé à:", landTokenAddress);
+    // Attendre les confirmations
+    await landRegistry.deploymentTransaction().wait(6);
+    
+    // 2. Deploy LandToken
+    console.log("Deploying LandToken...");
+    const LandToken = await hre.ethers.getContractFactory("LandToken");
+    const landToken = await LandToken.deploy(await landRegistry.getAddress());
+    await landToken.waitForDeployment();
+    console.log("LandToken deployed to:", await landToken.getAddress());
 
-  // 3. Configuration du tokenizer dans LandRegistry
-  console.log("Configuration du tokenizer dans LandRegistry...");
-  await landRegistry.connect(owner).setTokenizer(landTokenAddress);
-  console.log("Tokenizer configuré dans LandRegistry");
+    // Attendre les confirmations
+    await landToken.deploymentTransaction().wait(6);
 
-  // 4. Déploiement de LandTokenMarketplace
-  console.log("Déploiement de LandTokenMarketplace...");
-  const LandTokenMarketplace = await hre.ethers.getContractFactory("LandTokenMarketplace");
-  const marketplace = await LandTokenMarketplace.deploy(landTokenAddress);
-  await marketplace.waitForDeployment();
-  console.log("LandTokenMarketplace déployé à:", await marketplace.getAddress());
+    // 3. Configure tokenizer in LandRegistry
+    console.log("Configuring tokenizer...");
+    const setTokenizerTx = await landRegistry.setTokenizer(await landToken.getAddress());
+    await setTokenizerTx.wait(6);
 
-  // 5. Configuration des validateurs
-  console.log("Configuration des validateurs...");
-  await landRegistry.connect(owner).addValidator(validator1.address, 0); // Notaire
-  await landRegistry.connect(owner).addValidator(validator2.address, 1); // Géomètre
-  await landRegistry.connect(owner).addValidator(validator3.address, 2); // Expert Juridique
+    // 4. Deploy Marketplace
+    console.log("Deploploying LandTokenMarketplace...");
+    const LandTokenMarketplace = await hre.ethers.getContractFactory("LandTokenMarketplace");
+    const marketplace = await LandTokenMarketplace.deploy(await landToken.getAddress());
+    await marketplace.waitForDeployment();
+    console.log("Marketplace deployed to:", await marketplace.getAddress());
 
-  // 6. Vérification de la configuration
-  console.log("\nVérification de la configuration...");
-  const tokenizer = await landRegistry.tokenizer();
-  console.log("Tokenizer configuré:", tokenizer);
-  console.log("LandToken address:", landTokenAddress);
-  if(tokenizer !== landTokenAddress) {
-    throw new Error("Configuration incorrecte du tokenizer");
+    // Attendre les confirmations
+    await marketplace.deploymentTransaction().wait(6);
+
+    // Sauvegarder les adresses
+    const addresses = {
+      network: "sepolia",
+      landRegistry: await landRegistry.getAddress(),
+      landToken: await landToken.getAddress(),
+      marketplace: await marketplace.getAddress(),
+      deployer: deployer.address,
+      deploymentDate: new Date().toISOString()
+    };
+
+    // Sauvegarder dans un fichier spécifique pour Sepolia
+    fs.writeFileSync(
+      "deployed-addresses-sepolia.json", 
+      JSON.stringify(addresses, null, 2)
+    );
+
+    // Vérifier les contrats sur Etherscan
+    console.log("Verifying contracts on Etherscan...");
+    
+    await hre.run("verify:verify", {
+      address: await landRegistry.getAddress(),
+      constructorArguments: []
+    });
+
+    await hre.run("verify:verify", {
+      address: await landToken.getAddress(),
+      constructorArguments: [await landRegistry.getAddress()]
+    });
+
+    await hre.run("verify:verify", {
+      address: await marketplace.getAddress(),
+      constructorArguments: [await landToken.getAddress()]
+    });
+
+  } catch (error) {
+    console.error("Error during deployment:", error);
+    throw error;
   }
-
-  console.log("\nDéploiement terminé !");
-  console.log("===================");
-  console.log("Adresses des contrats :");
-  console.log("LandRegistry:", await landRegistry.getAddress());
-  console.log("LandToken:", landTokenAddress);
-  console.log("LandTokenMarketplace:", await marketplace.getAddress());
-  console.log("\nValidateurs :");
-  console.log("Notaire:", validator1.address);
-  console.log("Géomètre:", validator2.address);
-  console.log("Expert Juridique:", validator3.address);
-
-  // Écrire les adresses dans un fichier
-  const fs = require("fs");
-  const addresses = {
-    landRegistry: await landRegistry.getAddress(),
-    landToken: landTokenAddress,
-    marketplace: await marketplace.getAddress(),
-    validators: {
-      notaire: validator1.address,
-      geometre: validator2.address,
-      expertJuridique: validator3.address
-    }
-  };
-
-  fs.writeFileSync("deployed-addresses.json", JSON.stringify(addresses, null, 2));
-  console.log("\nAdresses sauvegardées dans deployed-addresses.json");
 }
 
 main()
   .then(() => process.exit(0))
   .catch((error) => {
-    console.error("Erreur détaillée:", error);
+    console.error(error);
     process.exit(1);
   });
