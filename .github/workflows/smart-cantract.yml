@@ -120,17 +120,4 @@ jobs:
             gas-report.txt
             coverage/
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        if: github.ref == 'refs/heads/main'
-        with:
-          files: |
-            deployment-report.md
-            deployment-note.md
-            deployed-contracts.json
-          name: Release ${{ github.sha }}
-          body_path: deployment-note.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
