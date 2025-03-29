@@ -73,6 +73,10 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
     error UnauthorizedTokenizer();
     error InvalidTokenizer();
+    event TokenizerUpdated(
+        address indexed previousTokenizer,
+        address indexed newTokenizer
+    );
     error InvalidValidator();
     error UnauthorizedValidator();
     error InvalidCIDComments();
@@ -83,14 +87,14 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     error InvalidTokenAmount();
     error InsufficientTokens();
 
-    constructor() {
-
-    }
+    constructor() {}
 
     // Fonction pour mettre à jour le tokenizer
     function setTokenizer(address _tokenizer) external onlyOwner {
         require(_tokenizer != address(0), "Invalid address");
+        address oldTokenizer = tokenizer;
         tokenizer = _tokenizer;
+        emit TokenizerUpdated(oldTokenizer, _tokenizer);
     }
 
     modifier onlyTokenizer() {

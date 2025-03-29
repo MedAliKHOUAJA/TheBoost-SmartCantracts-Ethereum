@@ -113,9 +113,9 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
      */
     function buyToken(uint256 _tokenId) external payable nonReentrant {
         Listing storage listing = listings[_tokenId];
-        if (!listing.isActive) revert NotListed();
-        if (!landToken.exists(_tokenId)) revert TokenDoesNotExist();
-        if (msg.value < listing.price) revert InsufficientFunds();
+        require(listing.isActive, "Not listed");
+        require(landToken.exists(_tokenId), "Token does not exist");
+        require(msg.value >= listing.price, "Insufficient payment");
 
         address seller = listing.seller;
         uint256 price = listing.price;
@@ -128,14 +128,15 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
 
         // Transfert des fonds au vendeur
         (bool success, ) = payable(seller).call{value: price}("");
-        if (!success) revert TransferFailed();
+        require(success, "Seller payment failed");
 
-        // Remboursement de l'excédent si nécessaire
-        if (msg.value > price) {
-            (bool refundSuccess, ) = payable(msg.sender).call{
-                value: msg.value - price
-            }("");
-            if (!refundSuccess) revert TransferFailed();
+        // Remboursement de l'excédent
+        uint256 excess = msg.value - price;
+        if (excess > 0) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}(
+                ""
+            );
+            require(refundSuccess, "Refund failed");
         }
 
         emit TokenSold(_tokenId, seller, msg.sender, price);

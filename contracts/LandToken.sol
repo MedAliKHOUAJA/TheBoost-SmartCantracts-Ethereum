@@ -74,7 +74,7 @@ contract LandToken is
     }
 
     /**
-     * @dev Remplace la fonction _burn pour résoudre le conflit entre ERC721 et ERC721URIStorage.
+     * @dev Required override for ERC721/ERC721URIStorage compatibility
      */
     function _burn(
         uint256 tokenId
@@ -88,19 +88,21 @@ contract LandToken is
      * @param _landId L'ID du terrain à tokenizer
      */
     function tokenizeLand(uint256 _landId) external {
-        // Pas besoin de onlyOwner ici car seul le tokenizer peut appeler tokenizeLand dans LandRegistry
-        landRegistry.tokenizeLand(_landId);
+        // Émettre l'événement avant l'appel externe
         emit LandTokenized(_landId);
+        // Faire l'appel externe en dernier
+        landRegistry.tokenizeLand(_landId);
     }
 
     function withdrawEther() external nonReentrant onlyOwner {
         uint256 balance = address(this).balance;
-        if (balance <= 0) revert NoEtherToWithdraw();
+        require(balance > 0, "No ether to withdraw");
 
-        (bool success, ) = payable(owner()).call{value: balance}("");
-        if (!success) revert TransferFailed();
+        address payable ownerPayable = payable(owner());
+        (bool success, ) = ownerPayable.call{value: balance}("");
+        require(success, "Transfer failed");
 
-        emit EtherWithdrawn(owner(), balance);
+        emit EtherWithdrawn(ownerPayable, balance);
     }
 
     /**
@@ -116,7 +118,7 @@ contract LandToken is
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
             uint256 pricePerToken,
-            //string memory cid
+            string memory cid
         ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();
@@ -220,6 +222,4 @@ contract LandToken is
     ) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
-
-
 }
