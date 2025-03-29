@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 import "./LandToken.sol";
 
 /**
- * @title LandTokenMarketplace
+ * @title LandTokenMarketplacee
  * @dev Contrat permettant la vente, l'achat et l'échange de tokens ERC-721 (LandToken).
  */
 contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
