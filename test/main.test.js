@@ -3,7 +3,7 @@ const { ethers } = require("hardhat");
 
 describe("Land System Tests", function () {
     let ownable, landRegistry, landToken, marketplace;
-    let owner, user1, user2, validator1, validator2, validator3;
+    let owner, user1, user2, validator1, validator2, validator3, relayer;
     const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
     let tokenId;
 
@@ -13,7 +13,7 @@ describe("Land System Tests", function () {
         try {
             // Récupération des signataires
             const signers = await ethers.getSigners();
-            [owner, user1, user2, validator1, validator2, validator3] = signers;
+            [owner, user1, user2, validator1, validator2, validator3, relayer] = signers;
 
             // 1. Déploiement d'Ownable
             console.log("Déploiement de Ownable...");
@@ -57,6 +57,11 @@ describe("Land System Tests", function () {
             if (configuredTokenizer.toLowerCase() !== (await landToken.getAddress()).toLowerCase()) {
                 throw new Error("Tokenizer non configuré correctement");
             }
+            // la configuration des relayers
+            console.log("Configuration des relayers...");
+            await landRegistry.connect(owner).addRelayer(relayer.address);
+            await landToken.connect(owner).addRelayer(relayer.address);
+            await marketplace.connect(owner).addRelayer(relayer.address);
 
         } catch (error) {
             console.error("Erreur détaillée lors du déploiement:", error);
@@ -77,7 +82,7 @@ describe("Land System Tests", function () {
     });
 
     describe("2. LandRegistry Tests", function () {
-        it("Doit permettre d'enregistrer et valider un terrain", async function () {
+        it("Doit permettre d'enregistrer un terrain (client paie ses frais)", async function () {
             await landRegistry.connect(user1).registerLand(
                 "Paris",
                 1500,
@@ -86,16 +91,65 @@ describe("Land System Tests", function () {
                 "QmWmyoMoctfbAaiEs2G4bNi1KxatgFfJw47y36p2uUd3Yr"
             );
 
-            await landRegistry.connect(validator1).validateLand(1, "QmValidationCID1", true);
-            await landRegistry.connect(validator2).validateLand(1, "QmValidationCID2", true);
-            await landRegistry.connect(validator3).validateLand(1, "QmValidationCID3", true);
+            const land = await landRegistry.lands(1);
+            expect(land.owner).to.equal(user1.address);
+        });
+
+        it("Doit permettre la validation via relayer", async function () {
+            // Enregistrement du terrain
+            await landRegistry.connect(user1).registerLand(
+                "Paris",
+                1500,
+                10,
+                ethers.parseEther("500"),
+                "QmWmyoMoctfbAaiEs2G4bNi1KxatgFfJw47y36p2uUd3Yr"
+            );
+
+            // Validation via relayer
+            await landRegistry.connect(relayer).validateLand(
+                1,
+                "QmValidationCID1",
+                true,
+                validator1.address
+            );
+            await landRegistry.connect(relayer).validateLand(
+                1,
+                "QmValidationCID2",
+                true,
+                validator2.address
+            );
+            await landRegistry.connect(relayer).validateLand(
+                1,
+                "QmValidationCID3",
+                true,
+                validator3.address
+            );
 
             const [isTokenized, status, availableTokens, pricePerToken] = await landRegistry.getLandDetails(1);
             expect(status).to.equal(1); // ValidationStatus.Valide
-            expect(availableTokens).to.equal(10);
-            expect(pricePerToken).to.equal(ethers.parseEther("500"));
+        });
+
+        it("Doit permettre de voir l'historique des validations", async function () {
+            await landRegistry.connect(user1).registerLand(
+                "Paris",
+                1500,
+                10,
+                ethers.parseEther("500"),
+                "QmWmyoMoctfbAaiEs2G4bNi1KxatgFfJw47y36p2uUd3Yr"
+            );
+
+            await landRegistry.connect(relayer).validateLand(
+                1,
+                "QmValidationCID1",
+                true,
+                validator1.address
+            );
+
+            const validations = await landRegistry.getValidationHistory(1);
+            expect(validations.length).to.be.above(0);
         });
     });
+
 
     describe("3. LandToken Tests", function () {
         let landId;
@@ -119,16 +173,24 @@ describe("Land System Tests", function () {
             expect(status).to.equal(1); // ValidationStatus.Valide
         });
 
-        it("Doit permettre la tokenisation et le minting", async function () {
-            // Tokeniser avec le contrat LandToken (qui est maintenant le tokenizer autorisé)
+        it("Doit permettre le minting standard (client paie)", async function () {
             await landToken.tokenizeLand(landId);
-
-            const [isTokenized] = await landRegistry.getLandDetails(landId);
-            expect(isTokenized).to.be.true;
 
             await landToken.connect(user1).mintToken(landId, {
                 value: ethers.parseEther("500")
             });
+
+            expect(await landToken.ownerOf(1)).to.equal(user1.address);
+        });
+
+        it("Doit permettre le minting via relayer", async function () {
+            await landToken.tokenizeLand(landId);
+
+            await landToken.connect(relayer).mintTokenForUser(
+                landId,
+                user1.address,
+                { value: ethers.parseEther("500") }
+            );
 
             expect(await landToken.ownerOf(1)).to.equal(user1.address);
         });
@@ -158,6 +220,46 @@ describe("Land System Tests", function () {
                 value: ethers.parseEther("500")
             });
             tokenId = 1; // Initialiser tokenId ici
+        });
+
+        it("Doit permettre le listing standard (client paie)", async function () {
+            const listingPrice = ethers.parseEther("1000");
+
+            await landToken.connect(user1).approve(marketplace.target, tokenId);
+            await marketplace.connect(user1).listToken(tokenId, listingPrice);
+
+            const listing = await marketplace.listings(tokenId);
+            expect(listing.isActive).to.be.true;
+        });
+
+        it("Doit permettre le listing via relayer", async function () {
+            const listingPrice = ethers.parseEther("1000");
+
+            await landToken.connect(user1).approve(marketplace.target, tokenId);
+            await marketplace.connect(relayer).listTokenForUser(
+                tokenId,
+                listingPrice,
+                user1.address
+            );
+
+            const listing = await marketplace.listings(tokenId);
+            expect(listing.isActive).to.be.true;
+            expect(listing.seller).to.equal(user1.address);
+        });
+
+        it("Doit permettre l'achat via relayer", async function () {
+            const listingPrice = ethers.parseEther("1000");
+
+            await landToken.connect(user1).approve(marketplace.target, tokenId);
+            await marketplace.connect(user1).listToken(tokenId, listingPrice);
+
+            await marketplace.connect(relayer).buyTokenForUser(
+                tokenId,
+                user2.address,
+                { value: listingPrice }
+            );
+
+            expect(await landToken.ownerOf(tokenId)).to.equal(user2.address);
         });
 
         it("Doit permettre de lister et acheter un token", async function () {
@@ -195,4 +297,43 @@ describe("Land System Tests", function () {
             expect(await landToken.ownerOf(tokenId)).to.equal(user1.address);
         });
     });
+    describe("5. Relayer System Tests", function () {
+        it("Doit permettre à l'owner d'ajouter un relayer", async function () {
+            await landRegistry.connect(owner).addRelayer(user1.address);
+            expect(await landRegistry.relayers(user1.address)).to.be.true;
+        });
+
+        it("Doit permettre à l'owner de supprimer un relayer", async function () {
+            await landRegistry.connect(owner).addRelayer(user1.address);
+            await landRegistry.connect(owner).removeRelayer(user1.address);
+            expect(await landRegistry.relayers(user1.address)).to.be.false;
+        });
+
+        it("Ne doit pas permettre à un non-owner d'ajouter un relayer", async function () {
+            await expect(
+                landRegistry.connect(user1).addRelayer(user2.address)
+            ).to.be.revertedWithCustomError(landRegistry, "OwnableUnauthorizedAccount");
+        });
+
+        it("Doit rejeter les validations d'un non-relayer/non-validator", async function () {
+            await landRegistry.connect(user1).registerLand(
+                "Paris",
+                1500,
+                10,
+                ethers.parseEther("500"),
+                "QmWmyoMoctfbAaiEs2G4bNi1KxatgFfJw47y36p2uUd3Yr"
+            );
+
+            await expect(
+                landRegistry.connect(user2).validateLand(
+                    1,
+                    "QmValidationCID1",
+                    true,
+                    validator1.address
+                )
+            ).to.be.revertedWithCustomError(landRegistry, "UnauthorizedRelayer");
+        });
+    });
+
 });
+

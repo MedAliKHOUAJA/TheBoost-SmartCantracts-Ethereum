@@ -26,6 +26,7 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
      * @dev Mapping des listings par ID de token.
      */
     mapping(uint256 => Listing) public listings;
+    mapping(address => bool) public relayers;
 
     /**
      * @dev Événement émis lorsqu'un token est listé à la vente.
@@ -34,6 +35,8 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
      * @param seller L'adresse du vendeur.
      */
     event TokenListed(uint256 indexed tokenId, uint256 price, address seller);
+    event RelayerAdded(address indexed relayer);
+    event RelayerRemoved(address indexed relayer);
 
     /**
      * @dev Événement émis lorsqu'un token est acheté.
@@ -58,6 +61,8 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
     error InsufficientFunds();
     error NotSeller();
     error TransferFailed();
+    error UnauthorizedRelayer();
+    error InvalidRelayer();
 
     /**
      * @dev Événement émis lorsqu'une liste est annulée.
@@ -80,6 +85,75 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    modifier onlyRelayerOrOwner() {
+        if (!relayers[msg.sender] && msg.sender != owner())
+            revert UnauthorizedRelayer();
+        _;
+    }
+
+    // Fonctions de gestion des relayers
+    function addRelayer(address _relayer) external onlyOwner {
+        if (_relayer == address(0)) revert InvalidRelayer();
+        relayers[_relayer] = true;
+        emit RelayerAdded(_relayer);
+    }
+
+    function removeRelayer(address _relayer) external onlyOwner {
+        relayers[_relayer] = false;
+        emit RelayerRemoved(_relayer);
+    }
+
+    // Ajout d'une fonction de listing pour les relayers
+    function listTokenForUser(
+        uint256 _tokenId,
+        uint256 _price,
+        address _seller
+    ) external nonReentrant onlyRelayerOrOwner {
+        if (landToken.ownerOf(_tokenId) != _seller) revert NotTokenOwner();
+        if (_price == 0) revert InvalidPrice();
+        if (listings[_tokenId].isActive) revert AlreadyListed();
+
+        listings[_tokenId] = Listing({
+            tokenId: _tokenId,
+            price: _price,
+            seller: _seller,
+            isActive: true
+        });
+
+        landToken.transferFrom(_seller, address(this), _tokenId);
+        emit TokenListed(_tokenId, _price, _seller);
+    }
+
+    // Ajout d'une fonction d'achat pour les relayers
+    function buyTokenForUser(
+        uint256 _tokenId,
+        address _buyer
+    ) external payable nonReentrant onlyRelayerOrOwner {
+        Listing storage listing = listings[_tokenId];
+        if (!listing.isActive) revert NotListed();
+        if (!landToken.exists(_tokenId)) revert TokenDoesNotExist();
+        if (msg.value < listing.price) revert InsufficientFunds();
+
+        address seller = listing.seller;
+        uint256 price = listing.price;
+        listing.isActive = false;
+
+        landToken.transferFrom(address(this), _buyer, _tokenId);
+
+        (bool success, ) = payable(seller).call{value: price}("");
+        if (!success) revert TransferFailed();
+
+        uint256 excess = msg.value - price;
+        if (excess > 0) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}(
+                ""
+            );
+            if (!refundSuccess) revert TransferFailed();
+        }
+
+        emit TokenSold(_tokenId, seller, _buyer, price);
     }
 
     /**

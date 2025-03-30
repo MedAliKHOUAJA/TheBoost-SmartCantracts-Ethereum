@@ -38,6 +38,7 @@ contract LandToken is
 
     // Mapping pour associer chaque terrain à ses tokens
     mapping(uint256 => uint256[]) public landTokens;
+    mapping(address => bool) public relayers;
 
     // Événements
     event TokenMinted(
@@ -48,6 +49,8 @@ contract LandToken is
     event TokenTransferred(uint256 indexed tokenId, address from, address to);
     event LandTokenized(uint256 indexed landId);
     event EtherWithdrawn(address indexed to, uint256 amount);
+    event RelayerAdded(address indexed relayer);
+    event RelayerRemoved(address indexed relayer);
 
     error InvalidRegistry();
     error NoEtherToWithdraw();
@@ -57,6 +60,8 @@ contract LandToken is
     error NoTokensAvailable();
     error InsufficientPayment();
     error InvalidTransferParameters();
+    error UnauthorizedRelayer();
+    error InvalidRelayer();
 
     constructor(
         address _landRegistryAddress
@@ -73,6 +78,12 @@ contract LandToken is
         _unpause();
     }
 
+     modifier onlyRelayerOrOwner() {
+        if (!relayers[msg.sender] && msg.sender != owner()) 
+            revert UnauthorizedRelayer();
+        _;
+    }
+
     /**
      * @dev Required override for ERC721/ERC721URIStorage compatibility
      */
@@ -81,6 +92,56 @@ contract LandToken is
     ) internal override(ERC721, ERC721URIStorage) {
         super._burn(tokenId);
     }
+
+     // Fonctions de gestion des relayers
+    function addRelayer(address _relayer) external onlyOwner {
+        if (_relayer == address(0)) revert InvalidRelayer();
+        relayers[_relayer] = true;
+        emit RelayerAdded(_relayer);
+    }
+
+    function removeRelayer(address _relayer) external onlyOwner {
+        relayers[_relayer] = false;
+        emit RelayerRemoved(_relayer);
+    }
+
+    // Ajout d'une fonction de mint pour les relayers
+    function mintTokenForUser(
+        uint256 _landId,
+        address _recipient
+    ) external payable whenNotPaused nonReentrant onlyRelayerOrOwner returns (uint256) {
+        (
+            bool isTokenized,
+            LandRegistry.ValidationStatus status,
+            uint256 availableTokens,
+            uint256 pricePerToken,
+        ) = landRegistry.getLandDetails(_landId);
+
+        if (!isTokenized) revert LandNotTokenized();
+        if (status != LandRegistry.ValidationStatus.Valide)
+            revert LandNotValidated();
+        if (availableTokens == 0) revert NoTokensAvailable();
+        if (msg.value < pricePerToken) revert InsufficientPayment();
+
+        _tokenIds.increment();
+        uint256 newTokenId = _tokenIds.current();
+
+        tokenData[newTokenId] = TokenData({
+            landId: _landId,
+            tokenNumber: newTokenId,
+            purchasePrice: msg.value,
+            mintDate: block.timestamp
+        });
+
+        landTokens[_landId].push(newTokenId);
+
+        landRegistry.updateAvailableTokens(_landId, 1);
+        _safeMint(_recipient, newTokenId);
+
+        emit TokenMinted(_landId, newTokenId, _recipient);
+        return newTokenId;
+    }
+
 
     /**
      * @dev Tokenize un terrain dans le registre.
@@ -117,8 +178,8 @@ contract LandToken is
             bool isTokenized,
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
-            uint256 pricePerToken,
-            //string memory cid
+            uint256 pricePerToken, //string memory cid
+
         ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();

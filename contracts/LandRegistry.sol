@@ -44,11 +44,13 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     mapping(uint256 => Validation[]) public landValidations;
     mapping(address => bool) public validators;
     mapping(address => ValidatorType) public validatorTypes;
+    mapping(address => bool) public relayers;
 
+    uint256 public currentLandId;
     uint256 private _landCounter;
-    // variable pour le tokenizer
-    address public tokenizer;
+    address public tokenizer; // variable pour le tokenizer
 
+    //events
     event LandRegistered(
         uint256 indexed landId,
         string location,
@@ -71,12 +73,16 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
     event LandTokenized(uint256 indexed landId);
 
+    event RelayerAdded(address indexed relayer);
+    event RelayerRemoved(address indexed relayer);
+
     error UnauthorizedTokenizer();
     error InvalidTokenizer();
     event TokenizerUpdated(
         address indexed previousTokenizer,
         address indexed newTokenizer
     );
+
     error InvalidValidator();
     error UnauthorizedValidator();
     error InvalidCIDComments();
@@ -86,6 +92,8 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     error LandAlreadyTokenized();
     error InvalidTokenAmount();
     error InsufficientTokens();
+    error UnauthorizedRelayer();
+    error InvalidRelayer();
 
     constructor() {}
 
@@ -107,12 +115,29 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         _;
     }
 
+    modifier onlyRelayerOrValidator() {
+        if (!relayers[msg.sender] && !validators[msg.sender]) 
+            revert UnauthorizedRelayer();
+        _;
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function addRelayer(address _relayer) external onlyOwner whenNotPaused {
+        if (_relayer == address(0)) revert InvalidRelayer();
+        relayers[_relayer] = true;
+        emit RelayerAdded(_relayer);
+    }
+
+    function removeRelayer(address _relayer) external onlyOwner {
+        relayers[_relayer] = false;
+        emit RelayerRemoved(_relayer);
     }
 
     /**
@@ -135,26 +160,35 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
      * @param _landId ID du terrain.
      * @param _cidComments CID IPFS contenant les commentaires.
      * @param _isValid Indique si le terrain est validé.
+     * @param _validator Indique l'adresse du validator pour accepter les relayers .
      */
-    function validateLand(
+        function validateLand(
         uint256 _landId,
         string calldata _cidComments,
-        bool _isValid
-    ) external whenNotPaused onlyValidator nonReentrant {
+        bool _isValid,
+        address _validator // Ajout du paramètre validator
+    ) external whenNotPaused onlyRelayerOrValidator nonReentrant {
         if (bytes(_cidComments).length == 0) revert InvalidCIDComments();
+        
+        // Déterminer le validateur réel
+        address actualValidator = validators[msg.sender] ? msg.sender : _validator;
+        
+        // Vérifier que le validateur est autorisé
+        if (!validators[actualValidator]) revert UnauthorizedValidator();
 
+        // Vérifier que le validateur n'a pas déjà validé
         for (uint256 i = 0; i < landValidations[_landId].length; i++) {
-            if (landValidations[_landId][i].validator == msg.sender) {
+            if (landValidations[_landId][i].validator == actualValidator) {
                 revert ValidatorAlreadyValidated();
             }
         }
 
         landValidations[_landId].push(
             Validation({
-                validator: msg.sender,
+                validator: actualValidator,
                 timestamp: block.timestamp,
                 cidComments: _cidComments,
-                validatorType: validatorTypes[msg.sender],
+                validatorType: validatorTypes[actualValidator],
                 isValidated: _isValid
             })
         );
@@ -165,9 +199,9 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
             lands[_landId].status = ValidationStatus.Valide;
         }
 
-        emit ValidationAdded(_landId, msg.sender, _isValid);
+        emit ValidationAdded(_landId, actualValidator, _isValid);
     }
-
+    
     /**
      * @dev Vérifie si toutes les validations nécessaires ont été effectuées pour un terrain.
      * @param _landId ID du terrain.
