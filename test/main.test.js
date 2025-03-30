@@ -153,7 +153,7 @@ describe("Land System Tests", function () {
 
     describe("3. LandToken Tests", function () {
         let landId;
-
+    
         beforeEach(async function () {
             const tx = await landRegistry.connect(user1).registerLand(
                 "Nice",
@@ -164,11 +164,27 @@ describe("Land System Tests", function () {
             );
             await tx.wait();
             landId = 1;
-
-            await landRegistry.connect(validator1).validateLand(landId, "QmValidationCID1", true);
-            await landRegistry.connect(validator2).validateLand(landId, "QmValidationCID2", true);
-            await landRegistry.connect(validator3).validateLand(landId, "QmValidationCID3", true);
-
+    
+            // Correction des appels à validateLand
+            await landRegistry.connect(validator1).validateLand(
+                landId, 
+                "QmValidationCID1", 
+                true,
+                validator1.address  // Ajout de l'adresse du validateur
+            );
+            await landRegistry.connect(validator2).validateLand(
+                landId, 
+                "QmValidationCID2", 
+                true,
+                validator2.address
+            );
+            await landRegistry.connect(validator3).validateLand(
+                landId, 
+                "QmValidationCID3", 
+                true,
+                validator3.address
+            );
+    
             const [, status] = await landRegistry.getLandDetails(landId);
             expect(status).to.equal(1); // ValidationStatus.Valide
         });
@@ -198,7 +214,7 @@ describe("Land System Tests", function () {
 
     describe("4. LandTokenMarketplace Tests", function () {
         let landId;
-
+    
         beforeEach(async function () {
             const tx = await landRegistry.connect(user1).registerLand(
                 "Bordeaux",
@@ -209,17 +225,33 @@ describe("Land System Tests", function () {
             );
             await tx.wait();
             landId = 1;
-
-            await landRegistry.connect(validator1).validateLand(landId, "QmValidationCID1", true);
-            await landRegistry.connect(validator2).validateLand(landId, "QmValidationCID2", true);
-            await landRegistry.connect(validator3).validateLand(landId, "QmValidationCID3", true);
-
+    
+            // Correction des appels à validateLand
+            await landRegistry.connect(validator1).validateLand(
+                landId, 
+                "QmValidationCID1", 
+                true,
+                validator1.address
+            );
+            await landRegistry.connect(validator2).validateLand(
+                landId, 
+                "QmValidationCID2", 
+                true,
+                validator2.address
+            );
+            await landRegistry.connect(validator3).validateLand(
+                landId, 
+                "QmValidationCID3", 
+                true,
+                validator3.address
+            );
+    
             await landToken.tokenizeLand(landId);
-
+    
             await landToken.connect(user1).mintToken(landId, {
                 value: ethers.parseEther("500")
             });
-            tokenId = 1; // Initialiser tokenId ici
+            tokenId = 1;
         });
 
         it("Doit permettre le listing standard (client paie)", async function () {
