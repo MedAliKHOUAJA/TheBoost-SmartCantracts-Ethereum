@@ -116,7 +116,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
     }
 
     modifier onlyRelayerOrValidator() {
-        if (!relayers[msg.sender] && !validators[msg.sender]) 
+        if (!relayers[msg.sender] && !validators[msg.sender])
             revert UnauthorizedRelayer();
         _;
     }
@@ -162,17 +162,19 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
      * @param _isValid Indique si le terrain est validé.
      * @param _validator Indique l'adresse du validator pour accepter les relayers .
      */
-        function validateLand(
+    function validateLand(
         uint256 _landId,
         string calldata _cidComments,
         bool _isValid,
         address _validator // Ajout du paramètre validator
     ) external whenNotPaused onlyRelayerOrValidator nonReentrant {
         if (bytes(_cidComments).length == 0) revert InvalidCIDComments();
-        
+
         // Déterminer le validateur réel
-        address actualValidator = validators[msg.sender] ? msg.sender : _validator;
-        
+        address actualValidator = validators[msg.sender]
+            ? msg.sender
+            : _validator;
+
         // Vérifier que le validateur est autorisé
         if (!validators[actualValidator]) revert UnauthorizedValidator();
 
@@ -201,7 +203,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
 
         emit ValidationAdded(_landId, actualValidator, _isValid);
     }
-    
+
     /**
      * @dev Vérifie si toutes les validations nécessaires ont été effectuées pour un terrain.
      * @param _landId ID du terrain.
@@ -313,6 +315,46 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
             land.pricePerToken,
             land.cid
         );
+    }
+
+    function getAllLandDetails(
+        uint256 _landId
+    )
+        external
+        view
+        returns (
+            string memory location,
+            uint256 surface,
+            address owner,
+            bool isRegistered,
+            uint256 registrationDate,
+            ValidationStatus status,
+            uint256 totalTokens,
+            uint256 availableTokens,
+            uint256 pricePerToken,
+            bool isTokenized,
+            string memory cid
+        )
+    {
+        Land memory land = lands[_landId];
+        return (
+            land.location,
+            land.surface,
+            land.owner,
+            land.isRegistered,
+            land.registrationDate,
+            land.status,
+            land.totalTokens,
+            land.availableTokens,
+            land.pricePerToken,
+            land.isTokenized,
+            land.cid
+        );
+    }
+
+    // Ajouter cette fonction pour récupérer le nombre total de terrains
+    function getLandCounter() external view returns (uint256) {
+        return _landCounter;
     }
 
     /**
