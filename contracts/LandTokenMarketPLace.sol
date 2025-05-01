@@ -12,6 +12,9 @@ import "./LandToken.sol";
 contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
     LandToken public immutable landToken;
 
+    uint256 public marketplaceFeePercentage = 250; // 2.5% par défaut
+    uint256 public constant PERCENTAGE_BASE = 10000; // 100% = 10000
+
     /**
      * @dev Structure représentant une liste de token à vendre.
      */
@@ -28,6 +31,10 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
     mapping(uint256 => Listing) public listings;
     mapping(address => bool) public relayers;
 
+    event MarketplaceFeeUpdated(uint256 newFeePercentage);
+    event MarketplaceFeesCollected(uint256 tokenId, uint256 amount);
+    event MarketplaceFeesWithdrawn(address indexed to, uint256 amount);
+
     /**
      * @dev Événement émis lorsqu'un token est listé à la vente.
      * @param tokenId L'ID du token listé.
@@ -37,6 +44,13 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
     event TokenListed(uint256 indexed tokenId, uint256 price, address seller);
     event RelayerAdded(address indexed relayer);
     event RelayerRemoved(address indexed relayer);
+    event MultipleTokensListed(address indexed seller, uint256 count);
+    event MultipleTokensBought(
+    address indexed buyer,
+    uint256 count,
+    uint256 totalPrice,
+    uint256 totalMarketplaceFee
+    );
 
     /**
      * @dev Événement émis lorsqu'un token est acheté.
@@ -93,6 +107,34 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
         _;
     }
 
+    /**
+     * @dev Permet au propriétaire de modifier le pourcentage des frais du marketplace.
+     * @param _newFeePercentage Nouveau pourcentage de frais (en base 10000, 250 = 2.5%).
+     */
+    function setMarketplaceFeePercentage(uint256 _newFeePercentage) external onlyOwner {
+        require(_newFeePercentage <= 1000, "Fee cannot exceed 10%");
+        
+        uint256 oldFeePercentage = marketplaceFeePercentage;
+        marketplaceFeePercentage = _newFeePercentage;
+        
+        emit MarketplaceFeeUpdated(_newFeePercentage);
+    }
+
+    /**
+     * @dev Permet au propriétaire de retirer les frais du marketplace collectés.
+     */
+    function withdrawMarketplaceFees() external nonReentrant onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No fees to withdraw");
+
+        address payable ownerPayable = payable(owner());
+        (bool success, ) = ownerPayable.call{value: balance}("");
+        require(success, "Transfer failed");
+
+        emit MarketplaceFeesWithdrawn(ownerPayable, balance);
+    }
+
+
     // Fonctions de gestion des relayers
     function addRelayer(address _relayer) external onlyOwner {
         if (_relayer == address(0)) revert InvalidRelayer();
@@ -126,7 +168,11 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
         emit TokenListed(_tokenId, _price, _seller);
     }
 
-    // Ajout d'une fonction d'achat pour les relayers
+    /**
+     * @dev Permet à un relayer d'acheter un token pour un utilisateur.
+     * @param _tokenId L'ID du token à acheter.
+     * @param _buyer L'adresse de l'acheteur.
+     */
     function buyTokenForUser(
         uint256 _tokenId,
         address _buyer
@@ -138,24 +184,35 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
 
         address seller = listing.seller;
         uint256 price = listing.price;
+        
+        // Désactiver le listing avant les transferts
         listing.isActive = false;
-
+        
+        // Calculer les frais de marketplace
+        uint256 marketplaceFee = (price * marketplaceFeePercentage) / PERCENTAGE_BASE;
+        uint256 sellerAmount = price - marketplaceFee;
+        
+        // Transfert du token
         landToken.transferFrom(address(this), _buyer, _tokenId);
 
-        (bool success, ) = payable(seller).call{value: price}("");
-        if (!success) revert TransferFailed();
+        // Transfert des fonds au vendeur
+        (bool sellerSuccess, ) = payable(seller).call{value: sellerAmount}("");
+        if (!sellerSuccess) revert TransferFailed();
+        
+        // Enregistrer les frais collectés
+        if (marketplaceFee > 0) {
+            emit MarketplaceFeesCollected(_tokenId, marketplaceFee);
+        }
 
+        // Remboursement de l'excédent
         uint256 excess = msg.value - price;
         if (excess > 0) {
-            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}(
-                ""
-            );
+            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}("");
             if (!refundSuccess) revert TransferFailed();
         }
 
         emit TokenSold(_tokenId, seller, _buyer, price);
     }
-
     /**
      * @dev Liste un token à la vente.
      * @param _tokenId L'ID du token à lister.
@@ -182,39 +239,234 @@ contract LandTokenMarketplace is ReentrancyGuard, Pausable, Ownable {
     }
 
     /**
-     * @dev Achète un token listé à la vente.
+     * @dev Liste plusieurs tokens à la vente en une seule transaction.
+     * @param _tokenIds Tableau des IDs des tokens à lister.
+     * @param _prices Tableau des prix demandés pour chaque token.
+     */
+    function listMultipleTokens(
+        uint256[] calldata _tokenIds,
+        uint256[] calldata _prices
+    ) external nonReentrant {
+        require(_tokenIds.length == _prices.length, "Arrays length mismatch");
+        require(_tokenIds.length > 0, "Empty arrays");
+        
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            uint256 tokenId = _tokenIds[i];
+            uint256 price = _prices[i];
+            
+            if (landToken.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
+            if (price == 0) revert InvalidPrice();
+            if (listings[tokenId].isActive) revert AlreadyListed();
+
+            listings[tokenId] = Listing({
+                tokenId: tokenId,
+                price: price,
+                seller: msg.sender,
+                isActive: true
+            });
+
+            landToken.transferFrom(msg.sender, address(this), tokenId);
+            emit TokenListed(tokenId, price, msg.sender);
+        }
+        
+        emit MultipleTokensListed(msg.sender, _tokenIds.length);
+    }
+
+
+    /**
+     * @dev Achète un token listé à la vente avec frais de marketplace.
      * @param _tokenId L'ID du token à acheter.
      */
     function buyToken(uint256 _tokenId) external payable nonReentrant {
         Listing storage listing = listings[_tokenId];
-        require(listing.isActive, "Not listed");
-        require(landToken.exists(_tokenId), "Token does not exist");
-        require(msg.value >= listing.price, "Insufficient payment");
+        if (!listing.isActive) revert NotListed();
+        if (!landToken.exists(_tokenId)) revert TokenDoesNotExist();
+        if (msg.value < listing.price) revert InsufficientFunds();
 
         address seller = listing.seller;
         uint256 price = listing.price;
-
+        
         // Désactiver le listing avant les transferts
         listing.isActive = false;
-
+        
+        // Calculer les frais de marketplace
+        uint256 marketplaceFee = (price * marketplaceFeePercentage) / PERCENTAGE_BASE;
+        uint256 sellerAmount = price - marketplaceFee;
+        
         // Transfert du token
         landToken.transferFrom(address(this), msg.sender, _tokenId);
 
         // Transfert des fonds au vendeur
-        (bool success, ) = payable(seller).call{value: price}("");
-        require(success, "Seller payment failed");
+        (bool sellerSuccess, ) = payable(seller).call{value: sellerAmount}("");
+        if (!sellerSuccess) revert TransferFailed();
+        
+        // Enregistrer les frais collectés
+        if (marketplaceFee > 0) {
+            emit MarketplaceFeesCollected(_tokenId, marketplaceFee);
+        }
 
         // Remboursement de l'excédent
         uint256 excess = msg.value - price;
         if (excess > 0) {
-            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}(
-                ""
-            );
-            require(refundSuccess, "Refund failed");
+            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}("");
+            if (!refundSuccess) revert TransferFailed();
         }
 
         emit TokenSold(_tokenId, seller, msg.sender, price);
     }
+
+        /**
+     * @dev Achète plusieurs tokens listés à la vente en une seule transaction.
+     * @param _tokenIds Tableau des IDs des tokens à acheter.
+     */
+    function buyMultipleTokens(uint256[] calldata _tokenIds) external payable nonReentrant {
+        require(_tokenIds.length > 0, "Empty token IDs array");
+        
+        uint256 totalPrice = 0;
+        address[] memory sellers = new address[](_tokenIds.length);
+        uint256[] memory prices = new uint256[](_tokenIds.length);
+        uint256[] memory marketplaceFees = new uint256[](_tokenIds.length);
+        uint256[] memory sellerAmounts = new uint256[](_tokenIds.length);
+        
+        // Première étape: vérifier tous les tokens et calculer le prix total
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            uint256 tokenId = _tokenIds[i];
+            Listing storage listing = listings[tokenId];
+            
+            if (!listing.isActive) revert NotListed();
+            if (!landToken.exists(tokenId)) revert TokenDoesNotExist();
+            
+            uint256 price = listing.price;
+            totalPrice += price;
+            
+            // Stocker les informations pour le traitement ultérieur
+            sellers[i] = listing.seller;
+            prices[i] = price;
+            
+            // Calculer les frais de marketplace et le montant du vendeur
+            marketplaceFees[i] = (price * marketplaceFeePercentage) / PERCENTAGE_BASE;
+            sellerAmounts[i] = price - marketplaceFees[i];
+            
+            // Désactiver le listing
+            listing.isActive = false;
+        }
+        
+        // Vérifier que l'acheteur a envoyé assez d'ETH
+        if (msg.value < totalPrice) revert InsufficientFunds();
+        
+        // Deuxième étape: transférer les tokens et les fonds
+        uint256 totalMarketplaceFee = 0;
+        
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            uint256 tokenId = _tokenIds[i];
+            address seller = sellers[i];
+            uint256 sellerAmount = sellerAmounts[i];
+            uint256 marketplaceFee = marketplaceFees[i];
+            
+            // Transférer le token
+            landToken.transferFrom(address(this), msg.sender, tokenId);
+            
+            // Transférer les fonds au vendeur
+            (bool sellerSuccess, ) = payable(seller).call{value: sellerAmount}("");
+            if (!sellerSuccess) revert TransferFailed();
+            
+            // Ajouter au total des frais de marketplace
+            totalMarketplaceFee += marketplaceFee;
+            
+            // Émettre l'événement de vente
+            emit TokenSold(tokenId, seller, msg.sender, prices[i]);
+            emit MarketplaceFeesCollected(tokenId, marketplaceFee);
+        }
+        
+        // Émettre un événement pour l'achat groupé
+        emit MultipleTokensBought(msg.sender, _tokenIds.length, totalPrice, totalMarketplaceFee);
+        
+        // Remboursement de l'excédent
+        uint256 excess = msg.value - totalPrice;
+        if (excess > 0) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}("");
+            if (!refundSuccess) revert TransferFailed();
+        }
+    }
+
+    /**
+     * @dev Permet à un relayer d'acheter plusieurs tokens pour un utilisateur.
+     * @param _tokenIds Tableau des IDs des tokens à acheter.
+     * @param _buyer L'adresse de l'acheteur.
+     */
+    function buyMultipleTokensForUser(
+        uint256[] calldata _tokenIds,
+        address _buyer
+    ) external payable nonReentrant onlyRelayerOrOwner {
+        require(_tokenIds.length > 0, "Empty token IDs array");
+        
+        uint256 totalPrice = 0;
+        address[] memory sellers = new address[](_tokenIds.length);
+        uint256[] memory prices = new uint256[](_tokenIds.length);
+        uint256[] memory marketplaceFees = new uint256[](_tokenIds.length);
+        uint256[] memory sellerAmounts = new uint256[](_tokenIds.length);
+        
+        // Première étape: vérifier tous les tokens et calculer le prix total
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            uint256 tokenId = _tokenIds[i];
+            Listing storage listing = listings[tokenId];
+            
+            if (!listing.isActive) revert NotListed();
+            if (!landToken.exists(tokenId)) revert TokenDoesNotExist();
+            
+            uint256 price = listing.price;
+            totalPrice += price;
+            
+            // Stocker les informations pour le traitement ultérieur
+            sellers[i] = listing.seller;
+            prices[i] = price;
+            
+            // Calculer les frais de marketplace et le montant du vendeur
+            marketplaceFees[i] = (price * marketplaceFeePercentage) / PERCENTAGE_BASE;
+            sellerAmounts[i] = price - marketplaceFees[i];
+            
+            // Désactiver le listing
+            listing.isActive = false;
+        }
+        
+        // Vérifier que le relayer a envoyé assez d'ETH
+        if (msg.value < totalPrice) revert InsufficientFunds();
+        
+        // Deuxième étape: transférer les tokens et les fonds
+        uint256 totalMarketplaceFee = 0;
+        
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            uint256 tokenId = _tokenIds[i];
+            address seller = sellers[i];
+            uint256 sellerAmount = sellerAmounts[i];
+            uint256 marketplaceFee = marketplaceFees[i];
+            
+            // Transférer le token
+            landToken.transferFrom(address(this), _buyer, tokenId);
+            
+            // Transférer les fonds au vendeur
+            (bool sellerSuccess, ) = payable(seller).call{value: sellerAmount}("");
+            if (!sellerSuccess) revert TransferFailed();
+            
+            // Ajouter au total des frais de marketplace
+            totalMarketplaceFee += marketplaceFee;
+            
+            // Émettre l'événement de vente
+            emit TokenSold(tokenId, seller, _buyer, prices[i]);
+            emit MarketplaceFeesCollected(tokenId, marketplaceFee);
+        }
+        
+        // Émettre un événement pour l'achat groupé
+        emit MultipleTokensBought(_buyer, _tokenIds.length, totalPrice, totalMarketplaceFee);
+        
+        // Remboursement de l'excédent
+        uint256 excess = msg.value - totalPrice;
+        if (excess > 0) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: excess}("");
+            if (!refundSuccess) revert TransferFailed();
+        }
+    }
+
 
     /**
      * @dev Annule une liste de token.

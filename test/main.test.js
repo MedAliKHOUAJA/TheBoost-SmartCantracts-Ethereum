@@ -210,6 +210,83 @@ describe("Land System Tests", function () {
 
             expect(await landToken.ownerOf(1)).to.equal(user1.address);
         });
+        it("Doit permettre le minting de plusieurs tokens à la fois", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            const quantity = 3;
+            const pricePerToken = ethers.parseEther("500");
+            const totalPrice = pricePerToken * BigInt(quantity);
+            
+            await landToken.connect(user1).mintMultipleTokens(landId, quantity, {
+                value: totalPrice
+            });
+            
+            // Vérifier que 3 tokens ont été créés
+            const tokens = await landToken.getTokensByLand(landId);
+            expect(tokens.length).to.equal(quantity);
+            
+            // Vérifier que tous les tokens appartiennent à user1
+            for (let i = 0; i < quantity; i++) {
+                expect(await landToken.ownerOf(tokens[i])).to.equal(user1.address);
+            }
+        });
+        
+        it("Doit permettre le minting multiple via relayer", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            const quantity = 2;
+            const pricePerToken = ethers.parseEther("500");
+            const totalPrice = pricePerToken * BigInt(quantity);
+            
+            await landToken.connect(relayer).mintMultipleTokensForUser(
+                landId,
+                user2.address,
+                quantity,
+                { value: totalPrice }
+            );
+            
+            // Vérifier que 2 tokens ont été créés
+            const tokens = await landToken.getTokensByLand(landId);
+            expect(tokens.length).to.equal(quantity);
+            
+            // Vérifier que tous les tokens appartiennent à user2
+            for (let i = 0; i < quantity; i++) {
+                expect(await landToken.ownerOf(tokens[i])).to.equal(user2.address);
+            }
+        });
+        it("Doit distribuer correctement les fonds lors du minting (avec frais de plateforme)", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            // Définir des frais de plateforme de 10%
+            await landToken.connect(owner).setPlatformFeePercentage(1000);
+            expect(await landToken.platformFeePercentage()).to.equal(1000);
+            
+            // Obtenir les soldes initiaux
+            const initialContractBalance = await ethers.provider.getBalance(landToken.target);
+            const initialLandOwnerBalance = await ethers.provider.getBalance(user1.address);
+            
+            // Minter un token (user2 mint, user1 est le propriétaire du terrain)
+            const price = ethers.parseEther("500");
+            const platformFee = price * BigInt(1000) / BigInt(10000); // 10%
+            const ownerAmount = price - platformFee;
+            
+            const mintTx = await landToken.connect(user2).mintToken(landId, {
+                value: price
+            });
+            
+            // Vérifier que les frais sont correctement collectés par le contrat
+            const finalContractBalance = await ethers.provider.getBalance(landToken.target);
+            expect(finalContractBalance - initialContractBalance).to.equal(platformFee);
+            
+            // Vérifier que le propriétaire du terrain a reçu le bon montant
+            // Note: nous devons prendre en compte que user1 a peut-être dépensé du gaz pour d'autres transactions
+            // Pour simplifier, vérifions simplement que le solde a augmenté d'environ le montant attendu
+            const finalLandOwnerBalance = await ethers.provider.getBalance(user1.address);
+            const landOwnerBalanceDiff = finalLandOwnerBalance - initialLandOwnerBalance;
+            
+            // Vérifier avec une marge d'erreur pour le gaz dépensé par user1
+            expect(landOwnerBalanceDiff).to.be.closeTo(ownerAmount, ethers.parseEther("0.01"));
+        });
     });
 
     describe("4. LandTokenMarketplace Tests", function () {
@@ -328,6 +405,189 @@ describe("Land System Tests", function () {
             // Vérifier que le token est retourné au propriétaire
             expect(await landToken.ownerOf(tokenId)).to.equal(user1.address);
         });
+        it("Doit permettre de lister plusieurs tokens à la fois", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            // Minter 3 tokens
+            const quantity = 3;
+            const pricePerToken = ethers.parseEther("500");
+            const totalPrice = pricePerToken * BigInt(quantity);
+            
+            await landToken.connect(user1).mintMultipleTokens(landId, quantity, {
+                value: totalPrice
+            });
+            
+            const tokens = await landToken.getTokensByLand(landId);
+            expect(tokens.length).to.equal(quantity);
+            
+            // Approuver le marketplace pour tous les tokens
+            for (let i = 0; i < tokens.length; i++) {
+                await landToken.connect(user1).approve(marketplace.target, tokens[i]);
+            }
+            
+            // Lister les tokens avec des prix différents
+            const prices = [
+                ethers.parseEther("600"),
+                ethers.parseEther("700"),
+                ethers.parseEther("800")
+            ];
+            
+            await marketplace.connect(user1).listMultipleTokens(tokens, prices);
+            
+            // Vérifier que les tokens sont correctement listés
+            for (let i = 0; i < tokens.length; i++) {
+                const listing = await marketplace.listings(tokens[i]);
+                expect(listing.isActive).to.be.true;
+                expect(listing.price).to.equal(prices[i]);
+                expect(listing.seller).to.equal(user1.address);
+            }
+        });
+        
+        it("Doit permettre d'acheter plusieurs tokens à la fois", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            // Minter 2 tokens
+            const quantity = 2;
+            const pricePerToken = ethers.parseEther("500");
+            const totalPrice = pricePerToken * BigInt(quantity);
+            
+            await landToken.connect(user1).mintMultipleTokens(landId, quantity, {
+                value: totalPrice
+            });
+            
+            const tokens = await landToken.getTokensByLand(landId);
+            
+            // Approuver le marketplace pour tous les tokens
+            for (let i = 0; i < tokens.length; i++) {
+                await landToken.connect(user1).approve(marketplace.target, tokens[i]);
+            }
+            
+            // Lister les tokens au même prix
+            const listingPrice = ethers.parseEther("1000");
+            const listingPrices = [listingPrice, listingPrice];
+            
+            await marketplace.connect(user1).listMultipleTokens(tokens, listingPrices);
+            
+            // Acheter les tokens en une seule transaction
+            const totalPurchasePrice = listingPrice * BigInt(tokens.length);
+            
+            // Configurer les frais de marketplace à 5%
+            await marketplace.connect(owner).setMarketplaceFeePercentage(500);
+            
+            // Capturer le solde du vendeur avant la vente
+            const sellerInitialBalance = await ethers.provider.getBalance(user1.address);
+            
+            // Acheter les tokens
+            await marketplace.connect(user2).buyMultipleTokens(tokens, {
+                value: totalPurchasePrice
+            });
+            
+            // Vérifier que les tokens appartiennent maintenant à user2
+            for (let i = 0; i < tokens.length; i++) {
+                expect(await landToken.ownerOf(tokens[i])).to.equal(user2.address);
+            }
+            
+            // Vérifier que les listings sont inactifs
+            for (let i = 0; i < tokens.length; i++) {
+                const listing = await marketplace.listings(tokens[i]);
+                expect(listing.isActive).to.be.false;
+            }
+            
+            // Vérifier que les frais de marketplace ont été collectés
+            const marketplaceFee = totalPurchasePrice * BigInt(500) / BigInt(10000); // 5%
+            const expectedSellerAmount = totalPurchasePrice - marketplaceFee;
+            
+            // Vérifier le solde du contrat (frais de marketplace)
+            const marketplaceBalance = await ethers.provider.getBalance(marketplace.target);
+            expect(marketplaceBalance).to.equal(marketplaceFee);
+            
+            // Vérifier le solde du vendeur (avec une marge d'erreur pour le gaz)
+            const sellerFinalBalance = await ethers.provider.getBalance(user1.address);
+            const sellerBalanceDiff = sellerFinalBalance - sellerInitialBalance;
+            expect(sellerBalanceDiff).to.be.closeTo(expectedSellerAmount, ethers.parseEther("0.01"));
+        });
+        it("Doit permettre au propriétaire de retirer les frais du marketplace", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            // Minter un token
+            await landToken.connect(user1).mintToken(landId, {
+                value: ethers.parseEther("500")
+            });
+            
+            // Lister le token
+            const listingPrice = ethers.parseEther("1000");
+            await landToken.connect(user1).approve(marketplace.target, tokenId);
+            await marketplace.connect(user1).listToken(tokenId, listingPrice);
+            
+            // Configurer les frais de marketplace à 5%
+            await marketplace.connect(owner).setMarketplaceFeePercentage(500);
+            
+            // User2 achète le token
+            await marketplace.connect(user2).buyToken(tokenId, {
+                value: listingPrice
+            });
+            
+            // Calculer les frais de marketplace
+            const marketplaceFee = listingPrice * BigInt(500) / BigInt(10000); // 5%
+            
+            // Vérifier le solde du contrat (frais de marketplace)
+            const marketplaceBalance = await ethers.provider.getBalance(marketplace.target);
+            expect(marketplaceBalance).to.equal(marketplaceFee);
+            
+            // Capturer le solde du propriétaire avant le retrait
+            const ownerInitialBalance = await ethers.provider.getBalance(owner.address);
+            
+            // Retirer les frais
+            const withdrawTx = await marketplace.connect(owner).withdrawMarketplaceFees();
+            const withdrawReceipt = await withdrawTx.wait();
+            const gasCost = withdrawReceipt.gasUsed * withdrawReceipt.gasPrice;
+            
+            // Vérifier que le contrat n'a plus de fonds
+            const marketplaceFinalBalance = await ethers.provider.getBalance(marketplace.target);
+            expect(marketplaceFinalBalance).to.equal(0);
+            
+            // Vérifier que le propriétaire a reçu les frais (moins le coût du gaz)
+            const ownerFinalBalance = await ethers.provider.getBalance(owner.address);
+            const expectedOwnerBalance = ownerInitialBalance + marketplaceFee - gasCost;
+            expect(ownerFinalBalance).to.equal(expectedOwnerBalance);
+        });
+        
+        it("Doit permettre au propriétaire de retirer les frais de plateforme", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            // Configurer les frais de plateforme à 10%
+            await landToken.connect(owner).setPlatformFeePercentage(1000);
+            
+            // Minter un token
+            await landToken.connect(user2).mintToken(landId, {
+                value: ethers.parseEther("500")
+            });
+            
+            // Calculer les frais de plateforme
+            const price = ethers.parseEther("500");
+            const platformFee = price * BigInt(1000) / BigInt(10000); // 10%
+            
+            // Vérifier le solde du contrat
+            const contractBalance = await ethers.provider.getBalance(landToken.target);
+            expect(contractBalance).to.equal(platformFee);
+            
+            // Capturer le solde du propriétaire avant le retrait
+            const ownerInitialBalance = await ethers.provider.getBalance(owner.address);
+            
+            // Retirer les frais
+            const withdrawTx = await landToken.connect(owner).withdrawPlatformFees();
+            const withdrawReceipt = await withdrawTx.wait();
+            const gasCost = withdrawReceipt.gasUsed * withdrawReceipt.gasPrice;
+            
+            // Vérifier que le contrat n'a plus de fonds
+            const contractFinalBalance = await ethers.provider.getBalance(landToken.target);
+            expect(contractFinalBalance).to.equal(0);
+            
+            // Vérifier que le propriétaire a reçu les frais (moins le coût du gaz)
+            const ownerFinalBalance = await ethers.provider.getBalance(owner.address);
+            const expectedOwnerBalance = ownerInitialBalance + platformFee - gasCost;
+            expect(ownerFinalBalance).to.equal(expectedOwnerBalance);
+        });
     });
     describe("5. Relayer System Tests", function () {
         it("Doit permettre à l'owner d'ajouter un relayer", async function () {
@@ -364,6 +624,43 @@ describe("Land System Tests", function () {
                     validator1.address
                 )
             ).to.be.revertedWithCustomError(landRegistry, "UnauthorizedRelayer");
+        });
+        it("Doit permettre à un relayer d'acheter plusieurs tokens pour un utilisateur", async function () {
+            await landToken.tokenizeLand(landId);
+            
+            // Minter 2 tokens
+            const quantity = 2;
+            const pricePerToken = ethers.parseEther("500");
+            const totalPrice = pricePerToken * BigInt(quantity);
+            
+            await landToken.connect(user1).mintMultipleTokens(landId, quantity, {
+                value: totalPrice
+            });
+            
+            const tokens = await landToken.getTokensByLand(landId);
+            
+            // Approuver le marketplace pour tous les tokens
+            for (let i = 0; i < tokens.length; i++) {
+                await landToken.connect(user1).approve(marketplace.target, tokens[i]);
+            }
+            
+            // Lister les tokens
+            const listingPrice = ethers.parseEther("1000");
+            const listingPrices = [listingPrice, listingPrice];
+            
+            await marketplace.connect(user1).listMultipleTokens(tokens, listingPrices);
+            
+            // Relayer achète les tokens pour user2
+            const totalPurchasePrice = listingPrice * BigInt(tokens.length);
+            
+            await marketplace.connect(relayer).buyMultipleTokensForUser(tokens, user2.address, {
+                value: totalPurchasePrice
+            });
+            
+            // Vérifier que les tokens appartiennent maintenant à user2
+            for (let i = 0; i < tokens.length; i++) {
+                expect(await landToken.ownerOf(tokens[i])).to.equal(user2.address);
+            }
         });
     });
 

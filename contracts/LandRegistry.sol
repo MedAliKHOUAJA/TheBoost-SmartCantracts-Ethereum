@@ -82,6 +82,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         address indexed previousTokenizer,
         address indexed newTokenizer
     );
+    event TokensAvailabilityUpdated(uint256 indexed landId, uint256 availableTokens);
 
     error InvalidValidator();
     error UnauthorizedValidator();
@@ -353,13 +354,23 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         );
     }
 
+    /**
+     * @dev Récupère l'adresse du propriétaire d'un terrain.
+     * @param _landId ID du terrain.
+     * @return L'adresse du propriétaire du terrain.
+     */
+    function getLandOwner(uint256 _landId) external view returns (address) {
+        require(_landId > 0 && _landId <= _landCounter, "Invalid land ID");
+        return lands[_landId].owner;
+    }
+
     // Ajouter cette fonction pour récupérer le nombre total de terrains
     function getLandCounter() external view returns (uint256) {
         return _landCounter;
     }
 
     /**
-     * @dev Met à jour le nombre de tokens disponibles pour un terrain.
+     * @dev Met à jour le nombre de tokens disponibles pour un terrain en spécifiant une quantité.
      * @param _landId ID du terrain.
      * @param _amount Montant à déduire des tokens disponibles.
      */
@@ -372,5 +383,24 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
             revert InsufficientTokens();
 
         lands[_landId].availableTokens -= _amount;
+        
+        emit TokensAvailabilityUpdated(_landId, lands[_landId].availableTokens);
+    }
+
+    /**
+     * @dev Calcule le prix total pour un certain nombre de tokens.
+     * @param _landId ID du terrain.
+     * @param _quantity Quantité de tokens.
+     * @return Le prix total pour la quantité spécifiée.
+     */
+    function calculateTokensPrice(
+        uint256 _landId,
+        uint256 _quantity
+    ) external view returns (uint256) {
+        require(_landId > 0 && _landId <= _landCounter, "Invalid land ID");
+        require(_quantity > 0, "Quantity must be greater than zero");
+        require(lands[_landId].availableTokens >= _quantity, "Not enough tokens available");
+        
+        return lands[_landId].pricePerToken * _quantity;
     }
 }
