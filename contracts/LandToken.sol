@@ -78,7 +78,6 @@ contract LandToken is
     error InvalidTransferParameters();
     error UnauthorizedRelayer();
     error InvalidRelayer();
-    error TransferFailed();
     error InvalidFeePercentage();
     error DistributionFailed();
     error NoTokensToMint();
@@ -150,8 +149,7 @@ contract LandToken is
         if (msg.value < pricePerToken) revert InsufficientPayment();
 
         // Récupérer l'adresse du propriétaire du terrain
-        address owner;
-        (,,owner,,,,,,,) = landRegistry.getAllLandDetails(_landId);
+        address owner = landRegistry.getLandOwner(_landId);
         
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
@@ -204,8 +202,7 @@ contract LandToken is
         if (msg.value < pricePerToken * _quantity) revert InsufficientPayment();
 
         // Récupérer l'adresse du propriétaire du terrain
-        address owner;
-        (,,owner,,,,,,,) = landRegistry.getAllLandDetails(_landId);
+        address owner = landRegistry.getLandOwner(_landId);
         
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
@@ -262,8 +259,7 @@ contract LandToken is
         if (msg.value < pricePerToken) revert InsufficientPayment();
 
         // Récupérer l'adresse du propriétaire du terrain
-        address owner;
-        (,,owner,,,,,,,) = landRegistry.getAllLandDetails(_landId);
+        address owner = landRegistry.getLandOwner(_landId);
         
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
@@ -314,8 +310,7 @@ contract LandToken is
         if (msg.value < pricePerToken * _quantity) revert InsufficientPayment();
 
         // Récupérer l'adresse du propriétaire du terrain
-        address owner;
-        (,,owner,,,,,,,) = landRegistry.getAllLandDetails(_landId);
+        address owner = landRegistry.getLandOwner(_landId);
         
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
