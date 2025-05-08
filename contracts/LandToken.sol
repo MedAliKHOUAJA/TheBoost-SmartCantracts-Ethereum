@@ -26,15 +26,15 @@ contract LandToken is
     LandRegistry public immutable landRegistry;
 
     // Variables pour les frais de plateforme
-    uint256 public platformFeePercentage = 500; // 5% par défaut
-    uint256 public constant PERCENTAGE_BASE = 10000; // 100% = 10000
+    uint256 public platformFeePercentage = 500;
+    uint256 public constant PERCENTAGE_BASE = 10000;
 
     // Structure pour stocker les détails du token
     struct TokenData {
-        uint256 landId; // ID du terrain associé
-        uint256 tokenNumber; // Numéro du token
-        uint256 purchasePrice; // Prix d'achat du token
-        uint256 mintDate; // Date de création du token
+        uint256 landId;
+        uint256 tokenNumber;
+        uint256 purchasePrice;
+        uint256 mintDate;
     }
 
     // Mapping pour stocker les détails de chaque token
@@ -43,6 +43,10 @@ contract LandToken is
     // Mapping pour associer chaque terrain à ses tokens
     mapping(uint256 => uint256[]) public landTokens;
     mapping(address => bool) public relayers;
+    // Mapping pour suivre les tokens possédés par chaque utilisateur
+    mapping(address => uint256[]) private userOwnedTokens;
+    // Mapping pour suivre l'index d'un token dans le tableau userOwnedTokens
+    mapping(address => mapping(uint256 => uint256)) private userOwnedTokenIndex;
 
     // Événements
     event TokenMinted(
@@ -56,8 +60,12 @@ contract LandToken is
     event RelayerAdded(address indexed relayer);
     event RelayerRemoved(address indexed relayer);
 
-    // Nouveaux événements pour la distribution des fonds
-    event PaymentToOwner(uint256 indexed landId, address indexed owner, uint256 amount);
+    // événements pour la distribution des fonds
+    event PaymentToOwner(
+        uint256 indexed landId,
+        address indexed owner,
+        uint256 amount
+    );
     event PlatformFeesCollected(uint256 indexed landId, uint256 amount);
     event PlatformFeeUpdated(uint256 newFeePercentage);
     event PlatformFeesWithdrawn(address indexed to, uint256 amount);
@@ -97,8 +105,8 @@ contract LandToken is
         _unpause();
     }
 
-     modifier onlyRelayerOrOwner() {
-        if (!relayers[msg.sender] && msg.sender != owner()) 
+    modifier onlyRelayerOrOwner() {
+        if (!relayers[msg.sender] && msg.sender != owner())
             revert UnauthorizedRelayer();
         _;
     }
@@ -112,7 +120,7 @@ contract LandToken is
         super._burn(tokenId);
     }
 
-     // Fonctions de gestion des relayers
+    // Fonctions de gestion des relayers
     function addRelayer(address _relayer) external onlyOwner {
         if (_relayer == address(0)) revert InvalidRelayer();
         relayers[_relayer] = true;
@@ -133,7 +141,14 @@ contract LandToken is
     function mintTokenForUser(
         uint256 _landId,
         address _recipient
-    ) external payable whenNotPaused nonReentrant onlyRelayerOrOwner returns (uint256) {
+    )
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+        onlyRelayerOrOwner
+        returns (uint256)
+    {
         (
             bool isTokenized,
             LandRegistry.ValidationStatus status,
@@ -150,11 +165,11 @@ contract LandToken is
 
         // Récupérer l'adresse du propriétaire du terrain
         address owner = landRegistry.getLandOwner(_landId);
-        
+
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
         if (!distributionSuccess) revert DistributionFailed();
-        
+
         _tokenIds.increment();
         uint256 newTokenId = _tokenIds.current();
 
@@ -167,6 +182,13 @@ contract LandToken is
 
         landTokens[_landId].push(newTokenId);
         landRegistry.updateAvailableTokens(_landId, 1);
+
+        //Ajouter le token aux tokens de l'utilisateur
+        userOwnedTokens[_recipient].push(newTokenId);
+        userOwnedTokenIndex[_recipient][newTokenId] =
+            userOwnedTokens[_recipient].length -
+            1;
+
         _safeMint(_recipient, newTokenId);
 
         emit TokenMinted(_landId, newTokenId, _recipient);
@@ -184,9 +206,16 @@ contract LandToken is
         uint256 _landId,
         address _recipient,
         uint256 _quantity
-    ) external payable whenNotPaused nonReentrant onlyRelayerOrOwner returns (uint256[] memory) {
+    )
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+        onlyRelayerOrOwner
+        returns (uint256[] memory)
+    {
         if (_quantity == 0) revert NoTokensToMint();
-        
+
         (
             bool isTokenized,
             LandRegistry.ValidationStatus status,
@@ -203,36 +232,42 @@ contract LandToken is
 
         // Récupérer l'adresse du propriétaire du terrain
         address owner = landRegistry.getLandOwner(_landId);
-        
+
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
         if (!distributionSuccess) revert DistributionFailed();
-        
+
         uint256[] memory tokenIds = new uint256[](_quantity);
-        
+
         for (uint256 i = 0; i < _quantity; i++) {
             _tokenIds.increment();
             uint256 newTokenId = _tokenIds.current();
-            
+
             tokenData[newTokenId] = TokenData({
                 landId: _landId,
                 tokenNumber: newTokenId,
                 purchasePrice: pricePerToken,
                 mintDate: block.timestamp
             });
-            
+
             landTokens[_landId].push(newTokenId);
             tokenIds[i] = newTokenId;
-            
+
+            // Ajouter le token aux tokens de l'utilisateur
+            userOwnedTokens[_recipient].push(newTokenId);
+            userOwnedTokenIndex[_recipient][newTokenId] =
+                userOwnedTokens[_recipient].length -
+                1;
+
             _safeMint(_recipient, newTokenId);
             emit TokenMinted(_landId, newTokenId, _recipient);
         }
-        
+
         // Mettre à jour le nombre de tokens disponibles
         landRegistry.updateAvailableTokens(_landId, _quantity);
-        
+
         emit TokensBatchMinted(_landId, _recipient, _quantity, tokenIds);
-        
+
         return tokenIds;
     }
 
@@ -260,11 +295,11 @@ contract LandToken is
 
         // Récupérer l'adresse du propriétaire du terrain
         address owner = landRegistry.getLandOwner(_landId);
-        
+
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
         if (!distributionSuccess) revert DistributionFailed();
-        
+
         _tokenIds.increment();
         uint256 newTokenId = _tokenIds.current();
 
@@ -277,6 +312,12 @@ contract LandToken is
 
         landTokens[_landId].push(newTokenId);
         landRegistry.updateAvailableTokens(_landId, 1);
+
+        userOwnedTokens[msg.sender].push(newTokenId);
+        userOwnedTokenIndex[msg.sender][newTokenId] =
+            userOwnedTokens[msg.sender].length -
+            1;
+
         _safeMint(msg.sender, newTokenId);
 
         emit TokenMinted(_landId, newTokenId, msg.sender);
@@ -294,7 +335,7 @@ contract LandToken is
         uint256 _quantity
     ) external payable whenNotPaused nonReentrant returns (uint256[] memory) {
         if (_quantity == 0) revert NoTokensToMint();
-        
+
         (
             bool isTokenized,
             LandRegistry.ValidationStatus status,
@@ -311,39 +352,43 @@ contract LandToken is
 
         // Récupérer l'adresse du propriétaire du terrain
         address owner = landRegistry.getLandOwner(_landId);
-        
+
         // Distribuer les fonds selon le pourcentage configuré
         bool distributionSuccess = distributePayment(owner, msg.value, _landId);
         if (!distributionSuccess) revert DistributionFailed();
-        
+
         uint256[] memory tokenIds = new uint256[](_quantity);
-        
+
         for (uint256 i = 0; i < _quantity; i++) {
             _tokenIds.increment();
             uint256 newTokenId = _tokenIds.current();
-            
+
             tokenData[newTokenId] = TokenData({
                 landId: _landId,
                 tokenNumber: newTokenId,
                 purchasePrice: pricePerToken,
                 mintDate: block.timestamp
             });
-            
+
             landTokens[_landId].push(newTokenId);
             tokenIds[i] = newTokenId;
-            
+
+            userOwnedTokens[msg.sender].push(newTokenId);
+            userOwnedTokenIndex[msg.sender][newTokenId] =
+                userOwnedTokens[msg.sender].length -
+                1;
+
             _safeMint(msg.sender, newTokenId);
             emit TokenMinted(_landId, newTokenId, msg.sender);
         }
-        
+
         // Mettre à jour le nombre de tokens disponibles
         landRegistry.updateAvailableTokens(_landId, _quantity);
-        
+
         emit TokensBatchMinted(_landId, msg.sender, _quantity, tokenIds);
-        
+
         return tokenIds;
     }
-
 
     /**
      * @dev Tokenize un terrain dans le registre.
@@ -368,7 +413,6 @@ contract LandToken is
         emit EtherWithdrawn(ownerPayable, balance);
     }
 
-
     /**
      * @dev Transfère un token d'un propriétaire à un autre.
      * @param _to Adresse du destinataire.
@@ -383,6 +427,12 @@ contract LandToken is
                 getApproved(_tokenId) == msg.sender, // Approuvé spécifiquement
             "Not authorized"
         );
+
+        // Mettre à jour les tokens des utilisateurs
+        address from = ownerOf(_tokenId);
+        _removeFromUserTokens(from, _tokenId);
+        userOwnedTokens[_to].push(_tokenId);
+        userOwnedTokenIndex[_to][_tokenId] = userOwnedTokens[_to].length - 1;
 
         // Effectuer le transfert sécurisé
         safeTransferFrom(msg.sender, _to, _tokenId);
@@ -438,15 +488,16 @@ contract LandToken is
     }
 
     /**
-    * @dev Permet au propriétaire de modifier le pourcentage des frais de plateforme.
-    * @param _newFeePercentage Nouveau pourcentage de frais (en base 10000, 500 = 5%).
-    */
-    function setPlatformFeePercentage(uint256 _newFeePercentage) external onlyOwner {
+     * @dev Permet au propriétaire de modifier le pourcentage des frais de plateforme.
+     * @param _newFeePercentage Nouveau pourcentage de frais (en base 10000, 500 = 5%).
+     */
+    function setPlatformFeePercentage(
+        uint256 _newFeePercentage
+    ) external onlyOwner {
         if (_newFeePercentage > 2000) revert InvalidFeePercentage(); // Max 20%
-    
-        uint256 oldFeePercentage = platformFeePercentage;
+
         platformFeePercentage = _newFeePercentage;
-    
+
         emit PlatformFeeUpdated(_newFeePercentage);
     }
 
@@ -458,31 +509,34 @@ contract LandToken is
      * @return true si la distribution a réussi.
      */
     function distributePayment(
-        address _landOwner, 
-        uint256 _amount, 
+        address _landOwner,
+        uint256 _amount,
         uint256 _landId
     ) internal returns (bool) {
         // Calculer les parts
-        uint256 platformFee = (_amount * platformFeePercentage) / PERCENTAGE_BASE;
+        uint256 platformFee = (_amount * platformFeePercentage) /
+            PERCENTAGE_BASE;
         uint256 ownerAmount = _amount - platformFee;
-        
+
         // Transférer au propriétaire du terrain
         if (ownerAmount > 0) {
-            (bool ownerSuccess, ) = payable(_landOwner).call{value: ownerAmount}("");
+            (bool ownerSuccess, ) = payable(_landOwner).call{
+                value: ownerAmount
+            }("");
             if (!ownerSuccess) return false;
-            
+
             emit PaymentToOwner(_landId, _landOwner, ownerAmount);
         }
-        
+
         // Les frais de plateforme restent dans le contrat pour être retirés plus tard
         if (platformFee > 0) {
             emit PlatformFeesCollected(_landId, platformFee);
         }
-        
+
         return true;
     }
 
-        /**
+    /**
      * @dev Permet au propriétaire du contrat de retirer les frais de plateforme collectés.
      */
     function withdrawPlatformFees() external nonReentrant onlyOwner {
@@ -510,9 +564,32 @@ contract LandToken is
      * @return ownerAmount Montant qui irait au propriétaire.
      * @return platformAmount Montant qui irait à la plateforme.
      */
-    function calculateDistribution(uint256 _amount) external view returns (uint256 ownerAmount, uint256 platformAmount) {
+    function calculateDistribution(
+        uint256 _amount
+    ) external view returns (uint256 ownerAmount, uint256 platformAmount) {
         platformAmount = (_amount * platformFeePercentage) / PERCENTAGE_BASE;
         ownerAmount = _amount - platformAmount;
         return (ownerAmount, platformAmount);
+    }
+
+    /**
+     * @dev Retire un token de la liste des tokens d'un utilisateur.
+     * @param _user L'adresse de l'utilisateur.
+     * @param _tokenId L'ID du token à retirer.
+     */
+    function _removeFromUserTokens(address _user, uint256 _tokenId) private {
+        if (userOwnedTokens[_user].length == 0) return;
+
+        uint256 tokenIndex = userOwnedTokenIndex[_user][_tokenId];
+        uint256 lastIndex = userOwnedTokens[_user].length - 1;
+
+        if (tokenIndex != lastIndex) {
+            uint256 lastTokenId = userOwnedTokens[_user][lastIndex];
+            userOwnedTokens[_user][tokenIndex] = lastTokenId;
+            userOwnedTokenIndex[_user][lastTokenId] = tokenIndex;
+        }
+
+        userOwnedTokens[_user].pop();
+        delete userOwnedTokenIndex[_user][_tokenId];
     }
 }
