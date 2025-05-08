@@ -133,142 +133,14 @@ contract LandToken is
     }
 
     /**
-     * @dev Permet aux relayers de minter un token pour un utilisateur.
-     * @param _landId ID du terrain.
-     * @param _recipient Adresse du destinataire du token.
-     * @return ID du nouveau token.
+     * @dev Implémentation combinée de supportsInterface.
+     * @param interfaceId Identifiant de l'interface.
+     * @return true si l'interface est supportée, false sinon.
      */
-    function mintTokenForUser(
-        uint256 _landId,
-        address _recipient
-    )
-        external
-        payable
-        whenNotPaused
-        nonReentrant
-        onlyRelayerOrOwner
-        returns (uint256)
-    {
-        (
-            bool isTokenized,
-            LandRegistry.ValidationStatus status,
-            uint256 availableTokens,
-            uint256 pricePerToken,
-            string memory cid
-        ) = landRegistry.getLandDetails(_landId);
-
-        if (!isTokenized) revert LandNotTokenized();
-        if (status != LandRegistry.ValidationStatus.Valide)
-            revert LandNotValidated();
-        if (availableTokens == 0) revert NoTokensAvailable();
-        if (msg.value < pricePerToken) revert InsufficientPayment();
-
-        // Récupérer l'adresse du propriétaire du terrain
-        address owner = landRegistry.getLandOwner(_landId);
-
-        // Distribuer les fonds selon le pourcentage configuré
-        bool distributionSuccess = distributePayment(owner, msg.value, _landId);
-        if (!distributionSuccess) revert DistributionFailed();
-
-        _tokenIds.increment();
-        uint256 newTokenId = _tokenIds.current();
-
-        tokenData[newTokenId] = TokenData({
-            landId: _landId,
-            tokenNumber: newTokenId,
-            purchasePrice: pricePerToken,
-            mintDate: block.timestamp
-        });
-
-        landTokens[_landId].push(newTokenId);
-        landRegistry.updateAvailableTokens(_landId, 1);
-
-        //Ajouter le token aux tokens de l'utilisateur
-        userOwnedTokens[_recipient].push(newTokenId);
-        userOwnedTokenIndex[_recipient][newTokenId] =
-            userOwnedTokens[_recipient].length -
-            1;
-
-        _safeMint(_recipient, newTokenId);
-
-        emit TokenMinted(_landId, newTokenId, _recipient);
-        return newTokenId;
-    }
-
-    /**
-     * @dev Permet aux relayers de minter plusieurs tokens pour un utilisateur en une seule transaction.
-     * @param _landId ID du terrain.
-     * @param _recipient Adresse du destinataire des tokens.
-     * @param _quantity Nombre de tokens à minter.
-     * @return Un tableau des IDs des nouveaux tokens créés.
-     */
-    function mintMultipleTokensForUser(
-        uint256 _landId,
-        address _recipient,
-        uint256 _quantity
-    )
-        external
-        payable
-        whenNotPaused
-        nonReentrant
-        onlyRelayerOrOwner
-        returns (uint256[] memory)
-    {
-        if (_quantity == 0) revert NoTokensToMint();
-
-        (
-            bool isTokenized,
-            LandRegistry.ValidationStatus status,
-            uint256 availableTokens,
-            uint256 pricePerToken,
-            string memory cid
-        ) = landRegistry.getLandDetails(_landId);
-
-        if (!isTokenized) revert LandNotTokenized();
-        if (status != LandRegistry.ValidationStatus.Valide)
-            revert LandNotValidated();
-        if (availableTokens < _quantity) revert NoTokensAvailable();
-        if (msg.value < pricePerToken * _quantity) revert InsufficientPayment();
-
-        // Récupérer l'adresse du propriétaire du terrain
-        address owner = landRegistry.getLandOwner(_landId);
-
-        // Distribuer les fonds selon le pourcentage configuré
-        bool distributionSuccess = distributePayment(owner, msg.value, _landId);
-        if (!distributionSuccess) revert DistributionFailed();
-
-        uint256[] memory tokenIds = new uint256[](_quantity);
-
-        for (uint256 i = 0; i < _quantity; i++) {
-            _tokenIds.increment();
-            uint256 newTokenId = _tokenIds.current();
-
-            tokenData[newTokenId] = TokenData({
-                landId: _landId,
-                tokenNumber: newTokenId,
-                purchasePrice: pricePerToken,
-                mintDate: block.timestamp
-            });
-
-            landTokens[_landId].push(newTokenId);
-            tokenIds[i] = newTokenId;
-
-            // Ajouter le token aux tokens de l'utilisateur
-            userOwnedTokens[_recipient].push(newTokenId);
-            userOwnedTokenIndex[_recipient][newTokenId] =
-                userOwnedTokens[_recipient].length -
-                1;
-
-            _safeMint(_recipient, newTokenId);
-            emit TokenMinted(_landId, newTokenId, _recipient);
-        }
-
-        // Mettre à jour le nombre de tokens disponibles
-        landRegistry.updateAvailableTokens(_landId, _quantity);
-
-        emit TokensBatchMinted(_landId, _recipient, _quantity, tokenIds);
-
-        return tokenIds;
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override(ERC721, ERC721URIStorage) returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 
     /**
@@ -284,7 +156,7 @@ contract LandToken is
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
             uint256 pricePerToken,
-            string memory cid
+
         ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();
@@ -341,7 +213,7 @@ contract LandToken is
             LandRegistry.ValidationStatus status,
             uint256 availableTokens,
             uint256 pricePerToken,
-            string memory cid
+
         ) = landRegistry.getLandDetails(_landId);
 
         if (!isTokenized) revert LandNotTokenized();
@@ -454,18 +326,7 @@ contract LandToken is
         }
     }
 
-    /**
-     * @dev Retourne tous les tokens associés à un terrain.
-     * @param _landId ID du terrain.
-     * @return Liste des IDs des tokens associés au terrain.
-     */
-    function getTokensByLand(
-        uint256 _landId
-    ) external view returns (uint256[] memory) {
-        return landTokens[_landId];
-    }
-
-    /**
+     /**
      * @dev Implémentation personnalisée de tokenURI.
      * @param tokenId ID du token.
      * @return URI du token.
@@ -477,14 +338,14 @@ contract LandToken is
     }
 
     /**
-     * @dev Implémentation combinée de supportsInterface.
-     * @param interfaceId Identifiant de l'interface.
-     * @return true si l'interface est supportée, false sinon.
+     * @dev Retourne tous les tokens associés à un terrain.
+     * @param _landId ID du terrain.
+     * @return Liste des IDs des tokens associés au terrain.
      */
-    function supportsInterface(
-        bytes4 interfaceId
-    ) public view override(ERC721, ERC721URIStorage) returns (bool) {
-        return super.supportsInterface(interfaceId);
+    function getTokensByLand(
+        uint256 _landId
+    ) external view returns (uint256[] memory) {
+        return landTokens[_landId];
     }
 
     /**
