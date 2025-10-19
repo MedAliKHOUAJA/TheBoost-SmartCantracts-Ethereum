@@ -37,7 +37,7 @@ jobs:
         run: npx hardhat compile
 
       - name: Run Slither
-        run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version --fail-on none
+        run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version
 
       - name: Run unit tests
         run: npx hardhat test
