@@ -38,86 +38,88 @@ jobs:
       - name: Run Hardhat compile
         run: npx hardhat compile
 
-      # - name: Run Slither
-      #   run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version
+      - name: Run Slither
+        run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version --fail-on none
 
-      # - name: Run unit tests
-      #   run: npx hardhat test
-      #   env:
-      #     REPORT_GAS: true
-
-      # - name: Run coverage
-      #   run: npx hardhat coverage
-
-  deploy:
-    name: Deploy Contracts
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18.x'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Deploy to Sepolia
-        run: npx hardhat run ignition/modules/deploy.js --network sepolia
+      - name: Run unit tests
+        run: npx hardhat test
         env:
-          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
-        continue-on-error: false
+          REPORT_GAS: true
 
-      - name: Add Deployment Note
-        run: |
-          echo "# Deployment Note" > deployment-note.md
-          echo "Deployed on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> deployment-note.md
-          echo "Deployed by: ${{ github.actor }}" >> deployment-note.md
-          echo -e "\nTo add validators later:" >> deployment-note.md
-          echo "1. Get the validator addresses" >> deployment-note.md
-          echo "2. Add them to GitHub Secrets:" >> deployment-note.md
-          echo "   - VALIDATOR_NOTAIRE" >> deployment-note.md
-          echo "   - VALIDATOR_GEOMETRE" >> deployment-note.md
-          echo "   - VALIDATOR_EXPERT" >> deployment-note.md
-          echo "3. Run the validator configuration script:" >> deployment-note.md
-          echo "   \`npx hardhat run scripts/configure-validators.js --network sepolia\`" >> deployment-note.md
+      - name: Run coverage
+        run: npx hardhat coverage
 
-      - name: Generate Deployment Report
-        run: |
-          echo "# Smart Contracts Deployment Report" > deployment-report.md
-          echo "## Generated on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> deployment-report.md
-          echo "## Deployed by: ${{ github.actor }}" >> deployment-report.md
-          
-          if [ -f deployed-contracts.json ]; then
-            echo -e "\n## Contract Addresses" >> deployment-report.md
-            cat deployed-contracts.json >> deployment-report.md
-          fi
-          
-          if [ -f gas-report.txt ]; then
-            echo -e "\n## Gas Usage Report" >> deployment-report.md
-            cat gas-report.txt >> deployment-report.md
-          fi
-          
-          echo -e "\n## Next Steps" >> deployment-report.md
-          echo "Validators need to be configured. See deployment-note.md for instructions." >> deployment-report.md
 
-      - name: Upload Deployment Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-artifacts
-          path: |
-            artifacts/
-            deployment-report.md
-            deployment-note.md
-            deployed-contracts.json
-            gas-report.txt
-            coverage/
+# deploy:
+#   name: Deploy Contracts
+#   needs: test
+#   runs-on: ubuntu-latest
+#   if: github.ref == 'refs/heads/main'
+#
+#   steps:
+#     - uses: actions/checkout@v4
+#
+#     - name: Setup Node.js
+#       uses: actions/setup-node@v4
+#       with:
+#         node-version: '18.x'
+#         cache: 'npm'
+#
+#     - name: Install dependencies
+#       run: npm ci
+#
+#     - name: Deploy to Sepolia
+#       run: npx hardhat run ignition/modules/deploy.js --network sepolia
+#       env:
+#         SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+#         PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+#         ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+#       continue-on-error: false
+#
+#     - name: Add Deployment Note
+#       run: |
+#         echo "# Deployment Note" > deployment-note.md
+#         echo "Deployed on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> deployment-note.md
+#         echo "Deployed by: ${{ github.actor }}" >> deployment-note.md
+#         echo -e "\nTo add validators later:" >> deployment-note.md
+#         echo "1. Get the validator addresses" >> deployment-note.md
+#         echo "2. Add them to GitHub Secrets:" >> deployment-note.md
+#         echo "   - VALIDATOR_NOTAIRE" >> deployment-note.md
+#         echo "   - VALIDATOR_GEOMETRE" >> deployment-note.md
+#         echo "   - VALIDATOR_EXPERT" >> deployment-note.md
+#         echo "3. Run the validator configuration script:" >> deployment-note.md
+#         echo "   \`npx hardhat run scripts/configure-validators.js --network sepolia\`" >> deployment-note.md
+#
+#     - name: Generate Deployment Report
+#       run: |
+#         echo "# Smart Contracts Deployment Report" > deployment-report.md
+#         echo "## Generated on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> deployment-report.md
+#         echo "## Deployed by: ${{ github.actor }}" >> deployment-report.md
+#         
+#         if [ -f deployed-contracts.json ]; then
+#           echo -e "\n## Contract Addresses" >> deployment-report.md
+#           cat deployed-contracts.json >> deployment-report.md
+#         fi
+#         
+#         if [ -f gas-report.txt ]; then
+#           echo -e "\n## Gas Usage Report" >> deployment-report.md
+#           cat gas-report.txt >> deployment-report.md
+#         fi
+#         
+#         echo -e "\n## Next Steps" >> deployment-report.md
+#         echo "Validators need to be configured. See deployment-note.md for instructions." >> deployment-report.md
+#
+#     - name: Upload Deployment Artifacts
+#       uses: actions/upload-artifact@v4
+#       with:
+#         name: deployment-artifacts
+#         path: |
+#           artifacts/
+#           deployment-report.md
+#           deployment-note.md
+#           deployed-contracts.json
+#           gas-report.txt
+#           coverage/
+
 
 
