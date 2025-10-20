@@ -38,13 +38,6 @@ jobs:
 
       - name: Run Slither
         run: slither . --filter-paths "node_modules|test" --exclude naming-convention,external-function,solc-version --markdown slither-report.md
-
-      - name: Upload Slither report
-        uses: actions/upload-artifact@v4
-        with:
-          name: slither-report
-          path: slither-report.md
-
       - name: Run unit tests
         run: npx hardhat test
         env:

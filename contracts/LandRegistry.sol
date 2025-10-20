@@ -140,7 +140,7 @@ contract LandRegistry is Ownable, ReentrancyGuard, Pausable {
         relayers[_relayer] = false;
         emit RelayerRemoved(_relayer);
     }
-
+    //add validator
     /**
      * @dev Ajoute un validateur.
      * @param _validator Adresse du validateur.
